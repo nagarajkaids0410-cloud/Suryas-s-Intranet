@@ -1,6 +1,17 @@
 // Simple in-memory user storage (can be replaced with PostgreSQL)
 // For production, use a real database
 
+// Persist the current in-memory users array to the JSON file.
+// Uses require() to avoid circular-import issues with user-db.ts.
+function persistToDisk(): void {
+  try {
+    const { saveUsersToDB } = require('./user-db');
+    saveUsersToDB(users);
+  } catch (err) {
+    console.error('[USER-DB] Failed to persist users to disk:', err);
+  }
+}
+
 export interface StoredUser {
   id: string;
   employeeId?: string;
@@ -196,6 +207,7 @@ export function findUserByResetToken(token: string): StoredUser | undefined {
 
 export function addUser(user: StoredUser): StoredUser {
   users.push(user);
+  persistToDisk();
   return user;
 }
 
@@ -226,6 +238,7 @@ export function approveUser(userId: string, username?: string, passwordHash?: st
       approvedAt: new Date().toISOString(),
       ...updates,
     };
+    persistToDisk();
     return users[index];
   }
   return undefined;
@@ -234,13 +247,18 @@ export function approveUser(userId: string, username?: string, passwordHash?: st
 export function denyUser(userId: string): boolean {
   const initial = users.length;
   users = users.filter((u) => u.id !== userId);
-  return users.length !== initial;
+  if (users.length !== initial) {
+    persistToDisk();
+    return true;
+  }
+  return false;
 }
 
 export function updateUser(username: string, updates: Partial<StoredUser>): StoredUser | undefined {
   const index = users.findIndex((u) => u.username === username);
   if (index !== -1) {
     users[index] = { ...users[index], ...updates };
+    persistToDisk();
     return users[index];
   }
   return undefined;
@@ -250,6 +268,7 @@ export function updateUserById(userId: string, updates: Partial<StoredUser>): St
   const index = users.findIndex((u) => u.id === userId);
   if (index !== -1) {
     users[index] = { ...users[index], ...updates };
+    persistToDisk();
     return users[index];
   }
   return undefined;

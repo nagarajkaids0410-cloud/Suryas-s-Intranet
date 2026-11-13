@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
 import { findUserByUsername, addUser, getAllUsers, StoredUser } from '@/lib/user-database';
-import { saveUsersToDB } from '@/lib/user-db';
 import { addNotificationDB } from '@/lib/notification-db';
 import { getNextEmployeeId } from '@/lib/employee-id';
 
@@ -74,11 +73,8 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    // Save to in-memory DB
+    // Save to DB (in-memory + file)
     const savedUser = addUser(newUser);
-
-    // Persist to file DB
-    saveUsersToDB(getAllUsers());
 
     addNotificationDB({
       type: 'user_access_request',

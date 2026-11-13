@@ -73,7 +73,6 @@ function migrateFounderRequestChains(requests: RequestItem[]): boolean {
   return migrated;
 }
 
-const DB_FILE = path.join(process.cwd(), '.data', 'requests.json');
 let inMemoryRequests: RequestItem[] = [];
 
 function ensureDBDir() {

@@ -67,7 +67,68 @@ export interface StoredUser {
   selectedRole?: string;
 }
 
-const defaultUsers: StoredUser[] = [];
+const defaultUsers: StoredUser[] = [
+  {
+    id: 'founder-001',
+    employeeId: 'MIB01',
+    username: 'gkbharath',
+    email: 'gollakumarbharath@suryas.in',
+    passwordHash: '$2b$10$Ba/u/FCErcSKaqGZ2KR0y.G1OijRFl5nugGPkz/HT4OHr97X6rOy6',
+    role: 'founder',
+    fullName: 'GOLLA KUMAR BHARATH',
+    designation: 'Founder & Chief Executive Partner',
+    profilePictureUploaded: false,
+    status: 'active',
+    mustChangePassword: false,
+    emailVerified: true,
+    createdAt: '2026-10-17T09:31:53.102Z',
+  },
+  {
+    id: 'admin-002',
+    employeeId: 'MIB02',
+    username: 'hareeshv',
+    email: 'hareeshv@suryas.in',
+    passwordHash: '$2b$10$Ba/u/FCErcSKaqGZ2KR0y.G1OijRFl5nugGPkz/HT4OHr97X6rOy6',
+    role: 'managing-partner',
+    fullName: 'HAREESH V',
+    designation: 'Managing Partner - Projects & Administration',
+    profilePictureUploaded: false,
+    status: 'active',
+    mustChangePassword: false,
+    emailVerified: true,
+    createdAt: '2026-10-17T09:31:53.102Z',
+  },
+  {
+    id: 'admin-003',
+    employeeId: 'MIB03',
+    username: 'santhanakumarv',
+    email: 'santhanakumarv@suryas.in',
+    passwordHash: '$2b$10$Ba/u/FCErcSKaqGZ2KR0y.G1OijRFl5nugGPkz/HT4OHr97X6rOy6',
+    role: 'managing-partner',
+    fullName: 'SANTHANA KUMAR V',
+    designation: 'Managing Partner - Operations & Business Development',
+    profilePictureUploaded: false,
+    status: 'active',
+    mustChangePassword: false,
+    emailVerified: true,
+    createdAt: '2026-10-17T09:31:53.102Z',
+  },
+  {
+    id: 'admin-007',
+    employeeId: 'MIB07',
+    username: 'nagarajkaids0410',
+    email: 'nagarajkaids0410@gmail.com',
+    passwordHash: '$2b$10$Ba/u/FCErcSKaqGZ2KR0y.G1OijRFl5nugGPkz/HT4OHr97X6rOy6',
+    role: 'admin',
+    fullName: 'Nagaraj K',
+    designation: 'Administrator',
+    profilePictureUploaded: false,
+    status: 'active',
+    mustChangePassword: false,
+    emailVerified: true,
+    createdAt: '2026-11-13T13:40:00.000Z',
+  },
+];
 
 // Initialize from file DB or use defaults
 function initializeUsers(): StoredUser[] {

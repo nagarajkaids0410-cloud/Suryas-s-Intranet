@@ -5,9 +5,13 @@ import { StoredUser } from './user-database';
 const DB_FILE = path.join(process.cwd(), '.data', 'users.json');
 
 function ensureDBDir() {
-  const dir = path.dirname(DB_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch {
+    // Read-only filesystem in serverless environments (e.g. Vercel)
   }
 }
 

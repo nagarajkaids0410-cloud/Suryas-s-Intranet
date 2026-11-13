@@ -14,34 +14,47 @@ interface Notification {
 }
 
 const DB_PATH = path.join(process.cwd(), '.data', 'notifications.json');
+let inMemoryNotifications: Notification[] = [];
 
 function ensureDBDir() {
-  const dir = path.dirname(DB_PATH);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    const dir = path.dirname(DB_PATH);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch {
+    // Read-only filesystem in serverless environments (e.g. Vercel)
   }
 }
 
 export function readNotificationsDB(): Notification[] {
-  ensureDBDir();
-  if (!fs.existsSync(DB_PATH)) {
-    return [];
-  }
   try {
+    ensureDBDir();
+    if (!fs.existsSync(DB_PATH)) {
+      return inMemoryNotifications;
+    }
     const data = fs.readFileSync(DB_PATH, 'utf-8');
-    return JSON.parse(data) || [];
+    const parsed = JSON.parse(data);
+    if (Array.isArray(parsed)) {
+      if (inMemoryNotifications.length === 0 && parsed.length > 0) {
+        inMemoryNotifications = parsed;
+      }
+      return parsed;
+    }
+    return inMemoryNotifications;
   } catch (err) {
-    console.error('Error reading notifications DB:', err);
-    return [];
+    console.warn('Error reading notifications DB, using in-memory store:', err);
+    return inMemoryNotifications;
   }
 }
 
 export function writeNotificationsDB(notifications: Notification[]): void {
-  ensureDBDir();
+  inMemoryNotifications = notifications;
   try {
+    ensureDBDir();
     fs.writeFileSync(DB_PATH, JSON.stringify(notifications, null, 2), 'utf-8');
   } catch (err) {
-    console.error('Error writing notifications DB:', err);
+    console.warn('Filesystem read-only, saved notifications to in-memory store:', err);
   }
 }
 

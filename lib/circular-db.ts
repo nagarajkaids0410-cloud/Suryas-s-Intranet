@@ -3,25 +3,42 @@ import path from 'path';
 import type { Circular } from '@/app/api/circulars/route';
 
 const DB_PATH = path.join(process.cwd(), '.data', 'circulars.json');
+let inMemoryCirculars: Circular[] = [];
 
 function ensureDBDir() {
-  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  try {
+    fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+  } catch {
+    // Read-only filesystem in serverless environments (e.g. Vercel)
+  }
 }
 
 export function getCircularsDB(): Circular[] {
-  ensureDBDir();
-  if (!fs.existsSync(DB_PATH)) return [];
+  try {
+    ensureDBDir();
+    if (!fs.existsSync(DB_PATH)) return inMemoryCirculars;
 
-  const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as unknown;
-  if (!Array.isArray(data)) {
-    throw new Error('Circular store must contain an array');
+    const data = JSON.parse(fs.readFileSync(DB_PATH, 'utf-8')) as unknown;
+    if (Array.isArray(data)) {
+      if (inMemoryCirculars.length === 0 && data.length > 0) {
+        inMemoryCirculars = data as Circular[];
+      }
+      return data as Circular[];
+    }
+  } catch (err) {
+    console.warn('Error reading circulars DB, using in-memory store:', err);
   }
-  return data as Circular[];
+  return inMemoryCirculars;
 }
 
 function writeCircularsDB(circulars: Circular[]) {
-  ensureDBDir();
-  fs.writeFileSync(DB_PATH, JSON.stringify(circulars, null, 2), 'utf-8');
+  inMemoryCirculars = circulars;
+  try {
+    ensureDBDir();
+    fs.writeFileSync(DB_PATH, JSON.stringify(circulars, null, 2), 'utf-8');
+  } catch (err) {
+    console.warn('Filesystem read-only, saved circulars to in-memory store:', err);
+  }
 }
 
 export function addCircularDB(circular: Circular): Circular {

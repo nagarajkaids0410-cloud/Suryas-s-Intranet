@@ -73,10 +73,17 @@ function migrateFounderRequestChains(requests: RequestItem[]): boolean {
   return migrated;
 }
 
+const DB_FILE = path.join(process.cwd(), '.data', 'requests.json');
+let inMemoryRequests: RequestItem[] = [];
+
 function ensureDBDir() {
-  const dir = path.dirname(DB_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch {
+    // Read-only filesystem in serverless environments
   }
 }
 
@@ -84,27 +91,27 @@ function readDB(): RequestItem[] {
   try {
     ensureDBDir();
     if (!fs.existsSync(DB_FILE)) {
-      fs.writeFileSync(DB_FILE, JSON.stringify([]));
-      return [];
+      return inMemoryRequests;
     }
     const data = fs.readFileSync(DB_FILE, 'utf-8');
     const requests: RequestItem[] = JSON.parse(data) || [];
-    if (migrateFounderRequestChains(requests)) {
-      writeDB(requests);
+    if (inMemoryRequests.length === 0 && requests.length > 0) {
+      inMemoryRequests = requests;
     }
     return requests;
   } catch (error) {
-    console.error('Error reading request DB:', error);
-    return [];
+    console.warn('Error reading request DB, using in-memory store:', error);
+    return inMemoryRequests;
   }
 }
 
 function writeDB(requests: RequestItem[]) {
+  inMemoryRequests = requests;
   try {
     ensureDBDir();
     fs.writeFileSync(DB_FILE, JSON.stringify(requests, null, 2));
   } catch (error) {
-    console.error('Error writing request DB:', error);
+    console.warn('Filesystem read-only, saved requests to in-memory store:', error);
   }
 }
 

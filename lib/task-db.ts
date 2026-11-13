@@ -30,16 +30,32 @@ export interface ManagedTask {
   comments: TaskComment[];
 }
 
+let inMemoryTasks: ManagedTask[] = [];
+
 function readDB(): ManagedTask[] {
-  if (!fs.existsSync(DB_FILE)) return [];
-  const tasks: unknown = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  if (!Array.isArray(tasks)) throw new Error('Task database has an invalid format');
-  return tasks as ManagedTask[];
+  try {
+    if (!fs.existsSync(DB_FILE)) return inMemoryTasks;
+    const tasks: unknown = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    if (!Array.isArray(tasks)) return inMemoryTasks;
+    if (inMemoryTasks.length === 0 && tasks.length > 0) {
+      inMemoryTasks = tasks as ManagedTask[];
+    }
+    return tasks as ManagedTask[];
+  } catch (err) {
+    console.warn('Error reading task DB, using in-memory store:', err);
+    return inMemoryTasks;
+  }
 }
 
 function writeDB(tasks: ManagedTask[]) {
-  fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-  fs.writeFileSync(DB_FILE, JSON.stringify(tasks, null, 2));
+  inMemoryTasks = tasks;
+  try {
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(DB_FILE, JSON.stringify(tasks, null, 2));
+  } catch (err) {
+    console.warn('Filesystem read-only, saved tasks to in-memory store:', err);
+  }
 }
 
 export function getTasks(): ManagedTask[] {

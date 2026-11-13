@@ -15,9 +15,13 @@ const DEFAULT_CONFIG: RetentionConfig = {
 };
 
 function ensureConfigDir() {
-  const dir = path.dirname(RETENTION_CONFIG_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    const dir = path.dirname(RETENTION_CONFIG_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch {
+    // Read-only filesystem
   }
 }
 

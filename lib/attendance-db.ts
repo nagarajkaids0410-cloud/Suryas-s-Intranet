@@ -14,16 +14,32 @@ export interface AttendanceRecord {
   checkOut?: string;
 }
 
+let inMemoryAttendance: AttendanceRecord[] = [];
+
 function readDB(): AttendanceRecord[] {
-  if (!fs.existsSync(DB_FILE)) return [];
-  const records: unknown = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
-  if (!Array.isArray(records)) throw new Error('Attendance database has an invalid format');
-  return records as AttendanceRecord[];
+  try {
+    if (!fs.existsSync(DB_FILE)) return inMemoryAttendance;
+    const records: unknown = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+    if (!Array.isArray(records)) return inMemoryAttendance;
+    if (inMemoryAttendance.length === 0 && records.length > 0) {
+      inMemoryAttendance = records as AttendanceRecord[];
+    }
+    return records as AttendanceRecord[];
+  } catch (err) {
+    console.warn('Error reading attendance DB, using in-memory store:', err);
+    return inMemoryAttendance;
+  }
 }
 
 function writeDB(records: AttendanceRecord[]) {
-  fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
-  fs.writeFileSync(DB_FILE, JSON.stringify(records, null, 2));
+  inMemoryAttendance = records;
+  try {
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+    fs.writeFileSync(DB_FILE, JSON.stringify(records, null, 2));
+  } catch (err) {
+    console.warn('Filesystem read-only, saved attendance to in-memory store:', err);
+  }
 }
 
 export function getAttendanceForUser(userId: string): AttendanceRecord[] {

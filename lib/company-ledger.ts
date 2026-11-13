@@ -24,21 +24,27 @@ export interface CompanyLedger {
 }
 
 const LEDGER_FILE = path.join(process.cwd(), '.data', 'company-ledger.json');
+let inMemoryLedger: CompanyLedger = { balance: 0, transactions: [] };
 
 function ensureLedgerFile(): void {
-  const dir = path.dirname(LEDGER_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
-  }
-  if (!fs.existsSync(LEDGER_FILE)) {
-    const initial: CompanyLedger = { balance: 0, transactions: [] };
-    fs.writeFileSync(LEDGER_FILE, JSON.stringify(initial, null, 2));
+  try {
+    const dir = path.dirname(LEDGER_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+    if (!fs.existsSync(LEDGER_FILE)) {
+      const initial: CompanyLedger = { balance: 0, transactions: [] };
+      fs.writeFileSync(LEDGER_FILE, JSON.stringify(initial, null, 2));
+    }
+  } catch {
+    // Read-only filesystem in serverless environments
   }
 }
 
 function readLedger(): CompanyLedger {
   try {
     ensureLedgerFile();
+    if (!fs.existsSync(LEDGER_FILE)) return inMemoryLedger;
     const raw = fs.readFileSync(LEDGER_FILE, 'utf-8');
     const parsed = JSON.parse(raw) as CompanyLedger;
     return {
@@ -46,17 +52,18 @@ function readLedger(): CompanyLedger {
       transactions: Array.isArray(parsed.transactions) ? parsed.transactions : [],
     };
   } catch (error) {
-    console.error('Error reading company ledger:', error);
-    return { balance: 0, transactions: [] };
+    console.warn('Error reading company ledger, using in-memory store:', error);
+    return inMemoryLedger;
   }
 }
 
 function writeLedger(ledger: CompanyLedger): void {
+  inMemoryLedger = ledger;
   try {
     ensureLedgerFile();
     fs.writeFileSync(LEDGER_FILE, JSON.stringify(ledger, null, 2));
   } catch (error) {
-    console.error('Error writing company ledger:', error);
+    console.warn('Filesystem read-only, saved ledger to in-memory store:', error);
   }
 }
 

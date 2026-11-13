@@ -16,9 +16,13 @@ export interface DataRetentionNotification {
 }
 
 function ensureNotificationsDir() {
-  const dir = path.dirname(NOTIFICATIONS_DB_FILE);
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true });
+  try {
+    const dir = path.dirname(NOTIFICATIONS_DB_FILE);
+    if (!fs.existsSync(dir)) {
+      fs.mkdirSync(dir, { recursive: true });
+    }
+  } catch {
+    // Read-only filesystem
   }
 }
 

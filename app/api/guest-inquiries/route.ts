@@ -6,8 +6,12 @@ import { requireRole } from '@/lib/rbac';
 const DB_FILE = path.join(process.cwd(), '.data', 'guest-inquiries.json');
 
 function ensureDBDir() {
-  const dir = path.dirname(DB_FILE);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  try {
+    const dir = path.dirname(DB_FILE);
+    if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  } catch {
+    // Read-only filesystem
+  }
 }
 
 function readDB() {

@@ -23,7 +23,7 @@ export default function ApprovalsPage() {
   const [guideSelections, setGuideSelections] = useState<Record<string, string>>({});
   const [directoryNames, setDirectoryNames] = useState<Record<string, string>>({});
   const [requestView, setRequestView] = useState<'pending' | 'history'>('pending');
-  const isRegistrationApprover = ['hareeshv', 'santhanakumarv', 'gkbharath'].includes(user?.username?.toLowerCase() || '');
+  const isRegistrationApprover = ['hareeshv', 'santhanakumarv', 'gkbharath'].includes(user?.username?.toLowerCase() || '') || user?.role === 'admin' || user?.role === 'founder';
   const isFinalRegistrationApprover = user?.username?.toLowerCase() === 'gkbharath' && user?.role === 'founder';
 
   const canActOnRequest = (request: any) => {

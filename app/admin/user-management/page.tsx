@@ -395,7 +395,19 @@ export default function UserManagement() {
                               </div>
                             )}
                           {user.status === 'pending_approval' && (
-                            <span className="text-xs text-slate-500">Sequential approval via Dashboard</span>
+                            <div className="flex items-center gap-2">
+                              {(currentUser?.role === 'admin' || currentUser?.role === 'founder') ? (
+                                <Button
+                                  size="sm"
+                                  className="bg-green-600 hover:bg-green-700 text-white text-xs"
+                                  onClick={() => handleUserStatusChange(user.id, 'active')}
+                                >
+                                  Approve User
+                                </Button>
+                              ) : (
+                                <span className="text-xs text-slate-500">Sequential approval via Dashboard</span>
+                              )}
+                            </div>
                           )}
                           {user.status === 'active' &&
                             user.role !== 'founder' &&

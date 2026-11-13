@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
   try {
     const actor = requireRole(request, ['admin', 'founder', 'managing-partner', 'employee', 'intern', 'project-intern']);
     if (actor instanceof NextResponse) return actor;
-    if (!ACCESS_APPROVAL_CHAIN.includes(actor.username)) {
+    if (!ACCESS_APPROVAL_CHAIN.includes(actor.username) && actor.role !== 'admin' && actor.role !== 'founder') {
       return NextResponse.json({ error: 'Not an assigned registration approver' }, { status: 403 });
     }
 
@@ -123,7 +123,7 @@ export async function POST(request: NextRequest) {
   try {
     const actor = requireRole(request, ['admin', 'founder', 'managing-partner', 'employee', 'intern', 'project-intern']);
     if (actor instanceof NextResponse) return actor;
-    if (!ACCESS_APPROVAL_CHAIN.includes(actor.username)) {
+    if (!ACCESS_APPROVAL_CHAIN.includes(actor.username) && actor.role !== 'admin' && actor.role !== 'founder') {
       return NextResponse.json({ error: 'Not an assigned registration approver' }, { status: 403 });
     }
 
@@ -153,11 +153,11 @@ export async function POST(request: NextRequest) {
     }
 
     const stage = user.approvalStage ?? 0;
-    if (ACCESS_APPROVAL_CHAIN[stage] !== actor.username) {
+    if (ACCESS_APPROVAL_CHAIN[stage] !== actor.username && actor.role !== 'admin' && actor.role !== 'founder') {
       return NextResponse.json({ error: 'You are not the current registration approver' }, { status: 403 });
     }
-    if (stage === ACCESS_APPROVAL_CHAIN.length - 1 && actor.role !== 'founder') {
-      return NextResponse.json({ error: 'Only the Founder can make the final registration decision' }, { status: 403 });
+    if (stage === ACCESS_APPROVAL_CHAIN.length - 1 && actor.role !== 'founder' && actor.role !== 'admin') {
+      return NextResponse.json({ error: 'Only an Administrator or Founder can make the final registration decision' }, { status: 403 });
     }
 
     const decisionHistory = [

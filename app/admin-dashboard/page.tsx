@@ -15,7 +15,7 @@ export default function AdminDashboard() {
   const { isAuthenticated, user } = useAuth();
   const router = useRouter();
   const isFounder = user?.role === 'founder' || user?.username?.toLowerCase() === 'gkbharath' || user?.id === 'founder-001';
-  const canReviewAccessRequests = ['hareeshv', 'santhanakumarv', 'gkbharath'].includes(user?.username || '');
+  const canReviewAccessRequests = ['hareeshv', 'santhanakumarv', 'gkbharath'].includes(user?.username || '') || user?.role === 'admin' || user?.role === 'founder';
 
   const [requests, setRequests] = useState<any[]>([]);
   const [founderRequests, setFounderRequests] = useState<any[]>([]);

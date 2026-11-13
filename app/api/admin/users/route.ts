@@ -84,16 +84,27 @@ export async function PATCH(request: NextRequest) {
       safeUpdates = { ...safeUpdates, guideId: guide.id, guideName: guide.fullName };
     }
     if (targetUser.status === 'pending_approval' && 'status' in updates) {
-      return NextResponse.json(
-        { error: 'Pending registrations must be approved or rejected through the sequential registration workflow' },
-        { status: 403 }
-      );
+      if (['admin', 'founder'].includes(auth.role) && updates.status === 'active') {
+        safeUpdates = {
+          ...safeUpdates,
+          status: 'active',
+          approvalStage: 3,
+          approvedAt: new Date().toISOString(),
+          mustChangePassword: false,
+        };
+      } else {
+        return NextResponse.json(
+          { error: 'Pending registrations must be approved or rejected through the sequential registration workflow' },
+          { status: 403 }
+        );
+      }
     }
     if (
       updates.status === 'active' &&
       targetUser.status !== 'active' &&
       targetUser.status !== 'suspended' &&
-      !targetUser.approvedAt
+      !targetUser.approvedAt &&
+      !['admin', 'founder'].includes(auth.role)
     ) {
       return NextResponse.json(
         { error: 'New accounts must complete the sequential registration approval workflow before activation' },

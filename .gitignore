@@ -43,3 +43,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# separate scaffold project (not part of this deployment)
+suryas-mib-portal/

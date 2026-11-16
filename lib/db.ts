@@ -95,6 +95,8 @@ export async function initDatabase() {
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMPTZ',
       'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_profile_completed BOOLEAN DEFAULT FALSE',
+      "ALTER TABLE requests ADD COLUMN IF NOT EXISTS target TEXT DEFAULT 'admin'",
+      'ALTER TABLE requests ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ',
     ];
 
     for (const stmt of columnMigrations) {

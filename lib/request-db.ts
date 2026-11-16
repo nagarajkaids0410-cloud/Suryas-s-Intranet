@@ -3,10 +3,83 @@ import path from 'path';
 import { randomInt } from 'node:crypto';
 import { RequestItem } from './request-store';
 import { addAuditEntry } from './audit-log';
+import { getPool, initDatabase } from './db';
 
 const DB_FILE = path.join(process.cwd(), '.data', 'requests.json');
 const LEGACY_FOUNDER_CHAIN = ['hareeshv', 'santhanakumarv', 'gkbharath'];
 const FOUNDER_REQUEST_CHAIN = ['hareeshv', 'santhanakumarv'];
+
+export async function syncRequestsWithDb(): Promise<RequestItem[]> {
+  const pool = getPool();
+  if (!pool) return readDB();
+
+  try {
+    await initDatabase();
+    const res = await pool.query('SELECT * FROM requests ORDER BY created_at DESC');
+    if (res && res.rows && res.rows.length > 0) {
+      const dbRequests: RequestItem[] = res.rows.map((row: any) => ({
+        id: row.id,
+        submissionId: row.submission_id,
+        type: row.type,
+        title: row.title,
+        status: row.status,
+        target: row.target || 'admin',
+        createdBy: row.created_by,
+        createdById: row.created_by_id,
+        createdByUsername: row.created_by_username,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        payload: typeof row.payload === 'string' ? JSON.parse(row.payload) : (row.payload || {}),
+      }));
+      for (const req of dbRequests) {
+        const idx = inMemoryRequests.findIndex((r) => r.id === req.id);
+        if (idx !== -1) {
+          inMemoryRequests[idx] = req;
+        } else {
+          inMemoryRequests.push(req);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[REQUEST-DB] Failed to sync requests from Supabase:', err);
+  }
+  return inMemoryRequests;
+}
+
+export async function saveRequestToPostgres(request: RequestItem): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
+
+  try {
+    await initDatabase();
+    await pool.query(`
+      INSERT INTO requests (
+        id, submission_id, type, title, status, target, created_by,
+        created_by_id, created_by_username, created_at, updated_at, payload
+      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+      ON CONFLICT (id) DO UPDATE SET
+        status = EXCLUDED.status,
+        target = EXCLUDED.target,
+        updated_at = EXCLUDED.updated_at,
+        payload = EXCLUDED.payload;
+    `, [
+      request.id,
+      request.submissionId || null,
+      request.type,
+      request.title,
+      request.status,
+      request.target || 'admin',
+      request.createdBy,
+      request.createdById || '',
+      request.createdByUsername || '',
+      request.createdAt || new Date().toISOString(),
+      request.updatedAt || new Date().toISOString(),
+      JSON.stringify(request.payload || {}),
+    ]);
+  } catch (err) {
+    console.error('[REQUEST-DB] Failed to persist request to Supabase:', err);
+  }
+}
 
 export function generateRequestIdentifiers(): { id: string; submissionId: string } {
   const usedIds = new Set(
@@ -118,6 +191,7 @@ export function addRequestDB(request: RequestItem): RequestItem {
   const requests = readDB();
   requests.unshift(request);
   writeDB(requests);
+  saveRequestToPostgres(request).catch(() => {});
   try {
     addAuditEntry({ action: 'request:created', actor: request.createdBy, actorId: request.createdById, details: { id: request.id, type: request.type, title: request.title } });
   } catch (e) {
@@ -154,6 +228,7 @@ export function updateRequestStatusDB(
       ...updates,
     };
     writeDB(requests);
+    saveRequestToPostgres(requests[index]).catch(() => {});
     try {
       addAuditEntry({ action: `request:${status}`, actor: updates?.forwardedTo || requests[index].createdBy, actorId: requests[index].createdById, details: { id, updates } });
     } catch (e) {
@@ -180,6 +255,7 @@ export function updateRequestPayloadDB(
       updatedAt: new Date().toISOString(),
     };
     writeDB(requests);
+    saveRequestToPostgres(requests[index]).catch(() => {});
     return requests[index];
   }
   return undefined;

@@ -1,5 +1,6 @@
 import fs from 'fs';
 import path from 'path';
+import { getPool, initDatabase } from './db';
 
 interface Notification {
   id: string;
@@ -15,6 +16,65 @@ interface Notification {
 
 const DB_PATH = path.join(process.cwd(), '.data', 'notifications.json');
 let inMemoryNotifications: Notification[] = [];
+
+export async function syncNotificationsWithDb(): Promise<Notification[]> {
+  const pool = getPool();
+  if (!pool) return readNotificationsDB();
+
+  try {
+    await initDatabase();
+    const res = await pool.query('SELECT * FROM notifications ORDER BY created_at DESC');
+    if (res && res.rows && res.rows.length > 0) {
+      const dbNotifs: Notification[] = res.rows.map((r: any) => ({
+        id: r.id,
+        type: r.type,
+        title: r.title,
+        message: r.message,
+        targetUser: r.target_user,
+        relatedId: r.related_id,
+        read: r.read,
+        timestamp: r.created_at,
+      }));
+      for (const notif of dbNotifs) {
+        const idx = inMemoryNotifications.findIndex((n) => n.id === notif.id);
+        if (idx !== -1) {
+          inMemoryNotifications[idx] = notif;
+        } else {
+          inMemoryNotifications.push(notif);
+        }
+      }
+    }
+  } catch (err) {
+    console.warn('[NOTIFICATION-DB] Failed to sync notifications from Supabase:', err);
+  }
+  return inMemoryNotifications;
+}
+
+export async function saveNotificationToPostgres(notif: Notification): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
+
+  try {
+    await initDatabase();
+    await pool.query(`
+      INSERT INTO notifications (id, type, title, message, target_user, related_id, read, created_at)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      ON CONFLICT (id) DO UPDATE SET
+        read = EXCLUDED.read;
+    `, [
+      notif.id,
+      notif.type,
+      notif.title,
+      notif.message,
+      notif.targetUser,
+      notif.relatedId || null,
+      notif.read || false,
+      notif.timestamp || new Date().toISOString(),
+    ]);
+  } catch (err) {
+    console.error('[NOTIFICATION-DB] Failed to persist notification to Supabase:', err);
+  }
+}
 
 function ensureDBDir() {
   try {
@@ -67,6 +127,7 @@ export function addNotificationDB(notification: Omit<Notification, 'id' | 'times
   };
   notifications.unshift(newNotification);
   writeNotificationsDB(notifications);
+  saveNotificationToPostgres(newNotification).catch(() => {});
   return newNotification;
 }
 
@@ -84,6 +145,7 @@ export function markAsReadDB(notificationId: string): boolean {
   if (index !== -1) {
     notifications[index].read = true;
     writeNotificationsDB(notifications);
+    saveNotificationToPostgres(notifications[index]).catch(() => {});
     return true;
   }
   return false;

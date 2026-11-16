@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { requireRole } from '@/lib/rbac';
 import { findUserById } from '@/lib/user-database';
-import { getAttendanceForUser, recordAttendance } from '@/lib/attendance-db';
+import { getAttendanceForUser, recordAttendance, syncAttendanceWithDb, saveAttendanceToPostgres } from '@/lib/attendance-db';
 import { addRequestDB, generateRequestIdentifiers } from '@/lib/request-db';
 import { getApprovalChainForUser, RequestItem } from '@/lib/request-store';
 import { addNotificationDB } from '@/lib/notification-db';
@@ -20,6 +20,7 @@ export async function GET(request: NextRequest) {
   const auth = requireRole(request, [...allowedRoles]);
   if (auth instanceof NextResponse) return auth;
   try {
+    await syncAttendanceWithDb();
     const records = getAttendanceForUser(auth.id);
     return NextResponse.json({ success: true, today: indiaDate(), records });
   } catch (error) {
@@ -40,6 +41,7 @@ export async function POST(request: NextRequest) {
 
     if (body.action === 'check-in' || body.action === 'check-out') {
       const attendance = recordAttendance(user, indiaDate(), body.action);
+      await saveAttendanceToPostgres(attendance);
       return NextResponse.json({ success: true, attendance });
     }
     if (body.action !== 'submit-report') {

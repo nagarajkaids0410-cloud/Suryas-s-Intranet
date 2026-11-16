@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { getRequestByIdDB, updateRequestStatusDB } from '@/lib/request-db';
+import { getRequestByIdDB, updateRequestStatusDB, syncRequestsWithDb } from '@/lib/request-db';
 import { addLedgerTransaction } from '@/lib/company-ledger';
 import { requireRole } from '@/lib/rbac';
 import { addNotificationDB } from '@/lib/notification-db';
@@ -38,6 +38,8 @@ export async function POST(request: NextRequest) {
       'project-intern',
     ]);
     if (caller instanceof NextResponse) return caller;
+
+    await syncRequestsWithDb();
 
     const current = getRequestByIdDB(requestId);
     if (!current) {

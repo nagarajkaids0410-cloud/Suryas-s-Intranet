@@ -4,7 +4,8 @@ import {
   markAsReadDB, 
   markAllAsReadDB,
   addNotificationDB,
-  readNotificationsDB 
+  readNotificationsDB,
+  syncNotificationsWithDb
 } from '@/lib/notification-db';
 import { requireRole } from '@/lib/rbac';
 
@@ -14,6 +15,7 @@ export async function GET(request: NextRequest) {
       'founder', 'managing-partner', 'admin', 'employee', 'freelancer', 'senior-freelancer', 'intern', 'project-intern', 'user',
     ]);
     if (auth instanceof NextResponse) return auth;
+    await syncNotificationsWithDb();
     const targetUsers = auth.role === 'admin' || auth.role === 'founder'
       ? [auth.username, auth.role]
       : [auth.username];

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getApprovalChainForUser, RequestItem, RequestTarget, RequestType, UploadedFile } from '@/lib/request-store';
-import { addRequestDB, generateRequestIdentifiers, getRequestsByTargetDB } from '@/lib/request-db';
+import { addRequestDB, generateRequestIdentifiers, getRequestsByTargetDB, syncRequestsWithDb, saveRequestToPostgres } from '@/lib/request-db';
 import { requireRole } from '@/lib/rbac';
 import { findUserById } from '@/lib/user-database';
 import { addNotificationDB } from '@/lib/notification-db';
@@ -25,6 +25,8 @@ export async function GET(request: NextRequest) {
     'user',
   ]);
   if (auth instanceof NextResponse) return auth;
+
+  await syncRequestsWithDb();
 
   const { searchParams } = new URL(request.url);
   const target = (searchParams.get('target') || 'admin') as RequestTarget;
@@ -212,6 +214,7 @@ export async function POST(request: NextRequest) {
     };
 
     const saved = addRequestDB(newRequest);
+    await saveRequestToPostgres(saved);
     try {
       const firstApprover = normalizedPayload.approvalChain[0];
       addNotificationDB({

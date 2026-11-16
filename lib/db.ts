@@ -3,9 +3,25 @@ import { Pool } from 'pg';
 let pool: Pool | null = null;
 let initialized = false;
 
+function resolveConnectionString(rawUrl: string): string {
+  // Direct Supabase connections (db.<project-ref>.supabase.co:5432) are IPv6-only on Free tier.
+  // Serverless functions (Netlify / AWS Lambda) do not have IPv6 outbound routing.
+  // Transform to the IPv4-compatible Supabase connection pooler host automatically:
+  const match = rawUrl.match(/^(postgres(?:ql)?:\/\/)([^:]+):([^@]+)@db\.([a-z0-9]+)\.supabase\.co(?::\d+)?\/(.*)$/);
+  if (match) {
+    const [, protocol, user, password, projectRef, dbname] = match;
+    const poolerUser = user.includes('.') ? user : `${user}.${projectRef}`;
+    const poolerHost = `aws-0-ap-northeast-1.pooler.supabase.com`;
+    return `${protocol}${poolerUser}:${password}@${poolerHost}:5432/${dbname}`;
+  }
+  return rawUrl;
+}
+
 export function getPool(): Pool | null {
-  const connectionString = process.env.DATABASE_URL;
-  if (!connectionString) return null;
+  const rawUrl = process.env.DATABASE_URL;
+  if (!rawUrl) return null;
+
+  const connectionString = resolveConnectionString(rawUrl);
 
   if (!pool) {
     pool = new Pool({
@@ -70,14 +86,24 @@ export async function initDatabase() {
         reset_token_expires_at TIMESTAMPTZ,
         is_profile_completed BOOLEAN DEFAULT FALSE
       );
+    `);
 
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMPTZ;
-      ALTER TABLE users ADD COLUMN IF NOT EXISTS is_profile_completed BOOLEAN DEFAULT FALSE;
+    const columnMigrations = [
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS requested_at TIMESTAMPTZ',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS email_verified BOOLEAN DEFAULT FALSE',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS verification_token TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token TEXT',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMPTZ',
+      'ALTER TABLE users ADD COLUMN IF NOT EXISTS is_profile_completed BOOLEAN DEFAULT FALSE',
+    ];
 
+    for (const stmt of columnMigrations) {
+      try {
+        await p.query(stmt);
+      } catch {}
+    }
+
+    await p.query(`
       CREATE TABLE IF NOT EXISTS requests (
         id TEXT PRIMARY KEY,
         submission_id TEXT,

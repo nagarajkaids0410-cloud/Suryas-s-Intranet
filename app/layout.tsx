@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/lib/auth-context";
 import { NotificationProvider } from "@/lib/notification-context";
+import { ReportingPeriodRoot } from "@/components/reporting-period-provider";
 import { Toaster } from "sonner";
 
 const geistSans = Geist({
@@ -31,10 +32,12 @@ export default function RootLayout({
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
       >
         <AuthProvider>
-          <NotificationProvider>
-            {children}
-            <Toaster position="top-right" />
-          </NotificationProvider>
+          <ReportingPeriodRoot>
+            <NotificationProvider>
+              {children}
+              <Toaster position="top-right" />
+            </NotificationProvider>
+          </ReportingPeriodRoot>
         </AuthProvider>
       </body>
     </html>

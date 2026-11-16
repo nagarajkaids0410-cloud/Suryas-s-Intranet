@@ -5,15 +5,8 @@ import MainLayout from '@/components/main-layout';
 import { useAuth } from '@/lib/auth-context';
 import { exportToExcel, requestTrackingColumns, toRequestExportRow } from '@/lib/excel-export';
 import { RequestApprovalDetails } from '@/components/request-approval-details';
-
-interface SubmittedBy {
-  id?: string;
-  employeeId?: string;
-  name?: string;
-  username?: string;
-  role?: string;
-  designation?: string;
-}
+import { isInReportingPeriod, useReportingPeriod } from '@/lib/reporting-period';
+import { EXTENDED_DOCUMENT_MAX_BYTES, isValidDocumentFile } from '@/lib/document-upload';
 
 interface Reply {
   repliedBy: string;
@@ -47,10 +40,10 @@ interface InternalRequest {
 
 export default function InternalRequestsPage() {
   const { user } = useAuth();
+  const { period, selectedDate } = useReportingPeriod();
   const [description, setDescription] = useState('');
   const [remarks, setRemarks] = useState('');
   const [files, setFiles] = useState<File[]>([]);
-  const [selectedMemberId, setSelectedMemberId] = useState<string | undefined>(undefined);
   const [selectedRecipientId, setSelectedRecipientId] = useState('');
   const [requests, setRequests] = useState<InternalRequest[]>([]);
   const [members, setMembers] = useState<any[]>([]);
@@ -58,11 +51,21 @@ export default function InternalRequestsPage() {
   const [expandedRequestId, setExpandedRequestId] = useState<string | null>(null);
   const [replyText, setReplyText] = useState<{ [key: string]: string }>({});
 
-  const userRole = user?.role || '';
+  const periodRequests = requests.filter((request) =>
+    request.id === expandedRequestId || isInReportingPeriod(request.createdAt, period, selectedDate)
+  );
 
   useEffect(() => {
+    const requestedRequestId = new URLSearchParams(window.location.search).get('requestId');
+    if (requestedRequestId) setExpandedRequestId(requestedRequestId);
     fetchRequests();
     fetchMembers();
+    const interval = setInterval(fetchMembers, 5000);
+    window.addEventListener('focus', fetchMembers);
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener('focus', fetchMembers);
+    };
   }, [user?.id]);
 
   async function fetchRequests() {
@@ -85,7 +88,15 @@ export default function InternalRequestsPage() {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const list = e.target.files;
-    if (list) setFiles(Array.from(list));
+    if (!list) return;
+    const selected = Array.from(list);
+    if (!selected.every((file) => isValidDocumentFile(file, ['pdf', 'doc', 'docx'], EXTENDED_DOCUMENT_MAX_BYTES))) {
+      e.target.value = '';
+      setFiles([]);
+      alert('Attachments must be PDF or DOC/DOCX files up to 10 MB each');
+      return;
+    }
+    setFiles(selected);
   }
 
   async function toBase64(file: File) {
@@ -104,12 +115,8 @@ export default function InternalRequestsPage() {
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     if (!description.trim()) return alert('Description is required');
+    if (!user?.phone?.trim()) return alert('Add a phone number to your profile before submitting an internal request');
     if (!selectedRecipientId) return alert('Choose a person to receive this request');
-    const member = members.find((m) => m.id === selectedMemberId) || null;
-    const submittedBy: SubmittedBy = member
-      ? { id: member.id, name: member.fullName || member.username, username: member.username, role: member.role, designation: member.designation }
-      : { id: user?.id, name: user?.fullName || user?.username, username: user?.username, role: user?.role, designation: user?.designation };
-
     const encodedFiles = await Promise.all(files.map((f) => toBase64(f)));
 
     const res = await fetch('/api/internal-requests', {
@@ -120,14 +127,13 @@ export default function InternalRequestsPage() {
         'x-user-id': user?.id || '',
         'x-user-username': user?.username || '',
       },
-      body: JSON.stringify({ description, remarks, files: encodedFiles, submittedBy, assignedHeadId: selectedRecipientId }),
+      body: JSON.stringify({ description, remarks, files: encodedFiles, assignedHeadId: selectedRecipientId }),
     });
     const data = await res.json();
     if (data?.success) {
       setDescription('');
       setRemarks('');
       setFiles([]);
-      setSelectedMemberId(undefined);
       setSelectedRecipientId('');
       fetchRequests();
       alert('Request submitted');
@@ -185,7 +191,7 @@ export default function InternalRequestsPage() {
       { key: 'attachments', header: 'Attachments' },
       { key: 'replies', header: 'Conversation Replies' },
     ];
-    const rows = requests.map((request) => ({
+    const rows = periodRequests.map((request) => ({
       ...toRequestExportRow(request),
       attachments: (request.payload?.files || []).map((file: any) => file.name).join('; '),
       replies: (request.payload?.replies || []).map((reply: any) =>
@@ -202,46 +208,35 @@ export default function InternalRequestsPage() {
     return (m.fullName || m.username || '').toLowerCase().includes(q) || (m.designation || '').toLowerCase().includes(q) || (m.role || '').toLowerCase().includes(q);
   });
 
-  const isAdminFounder = userRole === 'admin' || userRole === 'founder' || userRole === 'managing-partner';
   return (
     <MainLayout>
       <div className="max-w-5xl">
         <h1 className="text-2xl font-bold mb-4">Request Service Internally</h1>
 
         <form onSubmit={handleSubmit} className="space-y-4 mb-8">
+          <p className="text-sm text-slate-600">Phone Number *: {user?.phone || 'Update your profile phone number'}</p>
           <div>
             <label className="block text-sm font-medium text-slate-700">Request Description *</label>
             <textarea value={description} onChange={(e) => setDescription(e.target.value)} className="w-full border rounded p-2 mt-1" rows={4} />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">Attachments (optional)</label>
-            <input type="file" multiple onChange={handleFileChange} className="mt-2" accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png" />
+            <label className="block text-sm font-medium text-slate-700">Attachments</label>
+            <input type="file" multiple onChange={handleFileChange} className="mt-2" accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">Remarks (optional)</label>
+            <label className="block text-sm font-medium text-slate-700">Remarks</label>
             <input value={remarks} onChange={(e) => setRemarks(e.target.value)} className="w-full border rounded p-2 mt-1" />
           </div>
 
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Submitted By (choose a member or leave as yourself)</label>
-            <select value={selectedMemberId || ''} onChange={(e) => setSelectedMemberId(e.target.value || undefined)} className="w-full border rounded p-2 mt-1" disabled={!isAdminFounder}>
-              <option value="">(Submit as yourself)</option>
-              {members.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.fullName || m.username} ({m.employeeId || 'No Employee ID'}) — {m.designation || m.role}{m.department ? ` · ${m.department}` : ''}
-                </option>
-              ))}
-            </select>
-            {!isAdminFounder && <p className="mt-1 text-xs text-slate-500">Only management can submit on behalf of another member.</p>}
-          </div>
+          <p className="text-sm text-slate-600">Submitted by: {user?.fullName || user?.username || 'Current user'}</p>
 
           <div>
             <label className="block text-sm font-medium text-slate-700">Send To *</label>
             <select value={selectedRecipientId} onChange={(e) => setSelectedRecipientId(e.target.value)} className="w-full border rounded p-2 mt-1" required>
               <option value="">Choose a portal user</option>
-              {members.filter((member) => member.id !== (selectedMemberId || user?.id)).map((member) => (
+              {members.filter((member) => member.id !== user?.id).map((member) => (
                 <option key={member.id} value={member.id}>{member.fullName || member.username} — {member.designation || member.role}</option>
               ))}
             </select>
@@ -287,7 +282,7 @@ export default function InternalRequestsPage() {
             {requests.length === 0 ? (
               <div className="text-slate-600">No requests found</div>
             ) : (
-              requests.map((r) => {
+              periodRequests.map((r) => {
                 const isCreator = r.createdById === user?.id;
                 const isAssignedHead = r.payload?.assignedHeadId === user?.id;
                 const canReply = isCreator || isAssignedHead;

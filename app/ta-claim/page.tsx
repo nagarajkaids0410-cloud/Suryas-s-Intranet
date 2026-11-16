@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { FileUp, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { isValidDocumentFile, STANDARD_DOCUMENT_MAX_BYTES } from '@/lib/document-upload';
 
 export default function TAClaimPage(): React.ReactNode {
   const { isAuthenticated, user } = useAuth();
@@ -20,6 +21,7 @@ export default function TAClaimPage(): React.ReactNode {
     designation: user?.designation || '',
     department: user?.department || '',
     email: user?.email || '',
+    phone: user?.phone || '',
     claimType: 'expenses',
     amount: '',
     description: '',
@@ -42,6 +44,7 @@ export default function TAClaimPage(): React.ReactNode {
       designation: user?.designation || '',
       department: user?.department || '',
       email: user?.email || '',
+      phone: user?.phone || '',
     }));
   }, [isAuthenticated, router, user]);
 
@@ -53,8 +56,8 @@ export default function TAClaimPage(): React.ReactNode {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>, fileType: 'form' | 'proof') => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.includes('pdf') && !file.type.includes('image')) {
-        toast.error('Only PDF and image files are allowed');
+      if (!isValidDocumentFile(file, ['pdf'], STANDARD_DOCUMENT_MAX_BYTES)) {
+        toast.error('Choose a PDF file up to 5 MB');
         return;
       }
       if (fileType === 'form') {
@@ -68,8 +71,10 @@ export default function TAClaimPage(): React.ReactNode {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.amount || !formData.description) {
-      toast.error('Please fill in all required fields');
+    if (!formData.phone.trim() || !formData.amount || !formData.description || (formData.claimType === 'expenses' && !formData.billFile)) {
+      toast.error(formData.claimType === 'expenses'
+        ? 'Please fill in all required fields and attach the bill or receipt'
+        : 'Please fill in all required fields');
       return;
     }
 
@@ -94,7 +99,8 @@ export default function TAClaimPage(): React.ReactNode {
     };
 
     try {
-      const fileBase64 = formData.filledFormFile
+      const billFileBase64 = formData.billFile ? await fileToBase64(formData.billFile) : null;
+      const filledFormBase64 = formData.filledFormFile
         ? await fileToBase64(formData.filledFormFile)
         : null;
 
@@ -110,15 +116,13 @@ export default function TAClaimPage(): React.ReactNode {
           createdByDesignation: user?.designation,
           target,
           remarks: formData.remarks,
-          uploadedFile: fileBase64 && formData.filledFormFile
-            ? {
-                name: formData.filledFormFile.name,
-                size: formData.filledFormFile.size,
-                type: formData.filledFormFile.type,
-                base64: fileBase64,
-                uploadedAt: new Date().toISOString(),
-              }
-            : undefined,
+          ...(formData.billFile && billFileBase64 ? { uploadedFile: {
+            name: formData.billFile.name,
+            size: formData.billFile.size,
+            type: formData.billFile.type,
+            base64: billFileBase64,
+            uploadedAt: new Date().toISOString(),
+          } } : {}),
           signatureFrom,
           payload: {
             name: formData.name,
@@ -126,12 +130,22 @@ export default function TAClaimPage(): React.ReactNode {
             designation: formData.designation,
             department: formData.department,
             email: formData.email,
+            phone: formData.phone,
             claimType: formData.claimType,
             amount: formData.amount,
             description: formData.description,
             remarks: formData.remarks,
             filledFormFileName: formData.filledFormFileName,
             billFileName: formData.billFileName,
+            ...(filledFormBase64 && formData.filledFormFile ? {
+              filledFormFile: {
+                name: formData.filledFormFile.name,
+                size: formData.filledFormFile.size,
+                type: formData.filledFormFile.type,
+                base64: filledFormBase64,
+                uploadedAt: new Date().toISOString(),
+              },
+            } : {}),
             submittedAt: new Date().toISOString(),
           },
         }),
@@ -149,6 +163,7 @@ export default function TAClaimPage(): React.ReactNode {
         designation: user?.designation || '',
         department: user?.department || '',
         email: user?.email || '',
+        phone: user?.phone || '',
         claimType: 'expenses',
         amount: '',
         description: '',
@@ -203,6 +218,10 @@ export default function TAClaimPage(): React.ReactNode {
                   <label className="block text-sm font-medium text-slate-700 mb-1">Email</label>
                   <Input value={formData.email} disabled className="bg-slate-100" />
                 </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number *</label>
+                  <Input value={formData.phone} disabled required className="bg-slate-100" placeholder="Update your profile phone number" />
+                </div>
               </div>
             </div>
 
@@ -233,7 +252,7 @@ export default function TAClaimPage(): React.ReactNode {
                         onChange={handleInputChange}
                         className="w-4 h-4"
                       />
-                      <span className="text-sm">Bill NBE</span>
+                      <span className="text-sm">Non-Bill Expenses</span>
                     </label>
                   </div>
                 </div>
@@ -262,32 +281,30 @@ export default function TAClaimPage(): React.ReactNode {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Applicant Remarks *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Applicant Remarks</label>
                   <textarea
                     name="remarks"
                     placeholder="Any remarks for approver"
                     value={formData.remarks}
                     onChange={handleInputChange}
-                    required
-                    minLength={5}
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                     rows={3}
                   />
                 </div>
 
                 <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
-                  <p className="text-sm font-semibold text-amber-900 mb-2">Optional: Upload Filled Form</p>
+                  <p className="text-sm font-semibold text-amber-900 mb-2">Upload Filled Form</p>
                   <p className="text-xs text-amber-800 mb-3">
-                    Attach a supporting claim document here when available.
+                    Attach a supporting claim PDF up to 5 MB.
                   </p>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Filled Allowance Claim Form (PDF or Image)</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Filled Allowance Claim Form (PDF, up to 5 MB)</label>
                   <div className="flex items-center gap-2">
                     <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-amber-400 rounded-lg cursor-pointer hover:bg-amber-100 transition">
                       <Upload size={18} className="text-amber-700" />
                       <span className="text-sm text-amber-700 font-medium">Click to upload filled form</span>
                       <input
                         type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
+                        accept=".pdf,application/pdf"
                         onChange={(e) => handleFileUpload(e, 'form')}
                         className="hidden"
                       />
@@ -302,14 +319,21 @@ export default function TAClaimPage(): React.ReactNode {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Supporting Proofs (Receipts, Bills, etc.) - Optional</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">
+                    Bill or Receipt (PDF, up to 5 MB) {formData.claimType === 'expenses' ? '*' : ''}
+                  </label>
+                  <p className="mb-3 text-xs text-slate-600">
+                    {formData.claimType === 'expenses'
+                      ? 'A PDF bill or receipt is required for Expenses. Maximum file size: 5 MB.'
+                      : 'Bills are not required for Non-Bill Expenses. Attach supporting PDF documents if needed.'}
+                  </p>
                   <div className="flex items-center gap-2">
                     <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-blue-300 rounded-lg cursor-pointer hover:bg-blue-50 transition">
                       <Upload size={18} className="text-blue-600" />
                       <span className="text-sm text-blue-600 font-medium">Click to upload supporting documents</span>
                       <input
                         type="file"
-                        accept=".pdf,.jpg,.jpeg,.png"
+                        accept=".pdf,application/pdf"
                         onChange={(e) => handleFileUpload(e, 'proof')}
                         className="hidden"
                       />
@@ -325,7 +349,6 @@ export default function TAClaimPage(): React.ReactNode {
               </div>
 
               <div className="mt-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
-                <p className="font-semibold mb-1">Submitted to: Admin</p>
                 <p>Your claim will be reviewed and processed within 5-7 business days.</p>
               </div>
             </div>

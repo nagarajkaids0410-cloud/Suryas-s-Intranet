@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import Link from 'next/link';
 import MainLayout from '@/components/main-layout';
 import { useAuth } from '@/lib/auth-context';
 import { Button } from '@/components/ui/button';
@@ -8,6 +9,9 @@ import { exportToExcel, requestTrackingColumns, toRequestExportRow } from '@/lib
 import { toast } from 'sonner';
 import { RequestApprovalDetails } from '@/components/request-approval-details';
 import { isReportSubmissionRestricted } from '@/lib/report-access';
+import { isInReportingPeriod, useReportingPeriod } from '@/lib/reporting-period';
+import { isValidDocumentFile, STANDARD_DOCUMENT_MAX_BYTES } from '@/lib/document-upload';
+import { getIsoWeekParts, resolveReportPeriod } from '@/lib/report-period';
 
 interface Report {
   id: string;
@@ -26,20 +30,39 @@ interface Report {
     [key: string]: any;
     description: string;
     reportFrequency: 'weekly' | 'monthly';
+    reportDate?: string;
     attachments?: Array<{ name: string; size: number; type: string; base64: string }>;
   };
 }
 
 export default function ReportsPage() {
   const { user } = useAuth();
+  const { period, selectedDate } = useReportingPeriod();
+  const currentWeek = getIsoWeekParts();
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [remarks, setRemarks] = useState('');
   const [reportFrequency, setReportFrequency] = useState<'weekly' | 'monthly'>('weekly');
+  const [reportYear, setReportYear] = useState(currentWeek.year);
+  const [reportMonth, setReportMonth] = useState(new Date().getMonth() + 1);
+  const [weeklyPeriodDate, setWeeklyPeriodDate] = useState(() => {
+    const today = new Date();
+    return `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  });
   const [attachments, setAttachments] = useState<File[]>([]);
   const [reports, setReports] = useState<Report[]>([]);
   const [filter, setFilter] = useState<'all' | 'weekly' | 'monthly'>('all');
   const [loading, setLoading] = useState(false);
+  const selectedWeek = getIsoWeekParts(new Date(`${weeklyPeriodDate}T00:00:00`));
+  const reportPeriod = resolveReportPeriod({
+    frequency: reportFrequency,
+    mode: 'period',
+    year: reportFrequency === 'weekly' ? selectedWeek.year : reportYear,
+    month: reportMonth,
+    week: selectedWeek.week,
+  });
+  const periodYears = Array.from({ length: 5 }, (_, index) => currentWeek.year - 2 + index);
+  const periodReports = reports.filter((report) => isInReportingPeriod(report.createdAt, period, selectedDate));
 
   useEffect(() => {
     fetchReports();
@@ -47,7 +70,7 @@ export default function ReportsPage() {
 
   function handleExport() {
     try {
-      exportToExcel(reports.map(toRequestExportRow), requestTrackingColumns, 'my-reports');
+      exportToExcel(periodReports.map(toRequestExportRow), requestTrackingColumns, 'my-reports');
     } catch (error) {
       console.error('Report export failed:', error);
       toast.error(error instanceof Error ? error.message : 'Unable to export reports');
@@ -78,7 +101,14 @@ export default function ReportsPage() {
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const list = e.target.files;
-    if (list) setAttachments(Array.from(list));
+    if (!list) return;
+    const selected = Array.from(list);
+    if (!selected.every((file) => isValidDocumentFile(file, ['pdf'], STANDARD_DOCUMENT_MAX_BYTES))) {
+      e.target.value = '';
+      alert('Report attachments must be PDF files up to 5 MB each');
+      return;
+    }
+    setAttachments(selected);
   }
 
   async function toBase64(file: File) {
@@ -96,9 +126,11 @@ export default function ReportsPage() {
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!title.trim() || !description.trim() || remarks.trim().length < 5) {
-      return alert('Title, description, and remarks of at least five characters are required');
+    if (!title.trim() || !description.trim()) {
+      return alert('Title and description are required');
     }
+    if (!user?.phone?.trim()) return alert('Add a phone number to your profile before submitting a report');
+    if (!reportPeriod) return alert('Choose a valid month, week, or date range for this report');
 
     const encodedAttachments = await Promise.all(attachments.map((f) => toBase64(f)));
 
@@ -115,6 +147,14 @@ export default function ReportsPage() {
           title,
           description,
           reportFrequency,
+          reportPeriodMode: 'period',
+          reportYear: reportFrequency === 'weekly' ? selectedWeek.year : reportYear,
+          reportMonth,
+          reportWeek: selectedWeek.week,
+          reportDate: reportFrequency === 'weekly' ? weeklyPeriodDate : undefined,
+          periodStartDate: reportPeriod.fromDate,
+          periodEndDate: reportPeriod.toDate,
+          periodLabel: reportPeriod.label,
           attachments: encodedAttachments,
           remarks,
         }),
@@ -128,7 +168,7 @@ export default function ReportsPage() {
         setAttachments([]);
         setReportFrequency('weekly');
         fetchReports();
-        alert(`${reportFrequency === 'weekly' ? 'Weekly' : 'Monthly'} report submitted successfully!`);
+        alert(`${reportFrequency === 'weekly' ? 'Weekly' : 'Monthly'} report for ${reportPeriod.label} submitted successfully!`);
       } else {
         alert('Failed to submit report: ' + (data?.error || 'Unknown error'));
       }
@@ -179,12 +219,16 @@ export default function ReportsPage() {
       <div className="max-w-5xl">
         <div className="mb-6 flex flex-wrap items-center justify-between gap-3">
           <h1 className="text-2xl font-bold">Submit Report</h1>
-          <Button onClick={handleExport} disabled={reports.length === 0}>Export to Excel</Button>
+          <div className="flex flex-wrap gap-2">
+            <Button asChild variant="outline"><Link href="/admin/approvals?type=report">Report approvals</Link></Button>
+            <Button onClick={handleExport} disabled={periodReports.length === 0}>Export to Excel</Button>
+          </div>
         </div>
 
         {/* Report Submission Form */}
         <form onSubmit={handleSubmit} className="space-y-4 mb-8 p-4 border rounded bg-slate-50">
           <h2 className="text-lg font-semibold mb-4">Submit New Report</h2>
+          <p className="text-sm text-slate-600">Phone Number *: {user?.phone || 'Update your profile phone number'}</p>
 
           <div>
             <label className="block text-sm font-medium text-slate-700">Report Title *</label>
@@ -209,14 +253,12 @@ export default function ReportsPage() {
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-slate-700">Applicant Remarks *</label>
+            <label className="block text-sm font-medium text-slate-700">Applicant Remarks</label>
             <textarea
               value={remarks}
               onChange={(e) => setRemarks(e.target.value)}
               className="w-full border rounded p-2 mt-1"
               rows={3}
-              minLength={5}
-              required
               placeholder="Explain the purpose and context of this report"
             />
           </div>
@@ -233,14 +275,50 @@ export default function ReportsPage() {
             </select>
           </div>
 
+          {reportFrequency === 'weekly' ? (
+            <div>
+              <label className="block text-sm font-medium text-slate-700" htmlFor="weekly-period-date">Report Period Date *</label>
+              <input
+                id="weekly-period-date"
+                required
+                type="date"
+                value={weeklyPeriodDate}
+                onChange={(event) => setWeeklyPeriodDate(event.target.value)}
+                className="mt-1 w-full rounded border p-2"
+              />
+            </div>
+          ) : (
+            <p className="text-sm font-medium text-slate-700">Choose the report month and year.</p>
+          )}
+
+          {reportFrequency === 'monthly' && (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="text-sm text-slate-700">Month
+                <select value={reportMonth} onChange={(event) => setReportMonth(Number(event.target.value))} className="mt-1 block w-full rounded border p-2">
+                  {Array.from({ length: 12 }, (_, index) => index + 1).map((month) => (
+                    <option key={month} value={month}>{new Intl.DateTimeFormat('en-IN', { month: 'long', timeZone: 'UTC' }).format(new Date(Date.UTC(2020, month - 1, 1)))}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="text-sm text-slate-700">Year
+                <select value={reportYear} onChange={(event) => setReportYear(Number(event.target.value))} className="mt-1 block w-full rounded border p-2">
+                  {periodYears.map((year) => <option key={year} value={year}>{year}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
+
+          {reportFrequency === 'weekly' && <p className="text-sm text-slate-600">Report date: {weeklyPeriodDate}</p>}
+          {reportFrequency === 'monthly' && reportPeriod && <p className="text-sm text-slate-600">Report period: {reportPeriod.label}</p>}
+
           <div>
-            <label className="block text-sm font-medium text-slate-700">Attachments (optional)</label>
+            <label className="block text-sm font-medium text-slate-700">Attachments</label>
             <input
               type="file"
               multiple
               onChange={handleFileChange}
               className="mt-2"
-              accept=".pdf,.docx,.xlsx,.jpg,.jpeg,.png"
+              accept=".pdf,application/pdf"
             />
             {attachments.length > 0 && (
               <div className="mt-2 text-sm text-slate-600">
@@ -259,9 +337,9 @@ export default function ReportsPage() {
           </div>
         </form>
 
-        {/* Reports History */}
         <div>
-          <h2 className="text-lg font-semibold mb-4">Report History</h2>
+          <h2 className="text-lg font-semibold mb-1">Report History</h2>
+          <p className="mb-4 text-sm text-slate-600">Check each report’s approval status and decision history below.</p>
 
           <div className="mb-4 flex gap-2">
             {['all', 'weekly', 'monthly'].map((f) => (
@@ -283,11 +361,11 @@ export default function ReportsPage() {
 
           {loading ? (
             <div className="text-slate-600">Loading reports...</div>
-          ) : reports.length === 0 ? (
+          ) : periodReports.length === 0 ? (
             <div className="text-slate-600">No reports submitted yet.</div>
           ) : (
             <div className="space-y-3">
-              {reports.map((report) => (
+              {periodReports.map((report) => (
                 <div key={report.id} className="p-4 border rounded">
                   <div className="flex justify-between items-start mb-2">
                     <div>
@@ -310,6 +388,11 @@ export default function ReportsPage() {
                           {report.payload.reportFrequency === 'weekly' ? 'Weekly' : 'Monthly'}
                         </span>
                       </div>
+                      <p className="mt-1 text-xs text-slate-500">
+                        {report.payload.reportFrequency === 'weekly'
+                          ? `Report date: ${report.payload.reportDate || report.payload.periodStartDate || 'Not set'}`
+                          : `Report period: ${report.payload.periodLabel || 'Not set'}`}
+                      </p>
                     </div>
                   </div>
                   <div className="mt-2 p-2 bg-slate-50 rounded text-sm text-slate-700">
@@ -325,7 +408,7 @@ export default function ReportsPage() {
                             onClick={() => downloadFile(att.base64, att.name, att.type)}
                             className="px-2 py-1 text-xs bg-white border rounded text-blue-600 hover:bg-blue-50"
                           >
-                            📄 {att.name}
+                            {att.name}
                           </button>
                         ))}
                       </div>

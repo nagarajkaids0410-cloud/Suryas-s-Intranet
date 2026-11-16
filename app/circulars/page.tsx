@@ -12,7 +12,6 @@ interface CircularEntry {
   id: string;
   title: string;
   date: string;
-  time: string;
   category: string;
   details: string;
 }
@@ -26,7 +25,6 @@ export default function CircularsPage() {
   const [formData, setFormData] = useState({
     title: '',
     date: '',
-    time: '',
     category: 'Notice',
     details: '',
   });
@@ -40,7 +38,6 @@ export default function CircularsPage() {
         id: c.id,
         title: c.title,
         date: c.meta?.date || new Date(c.postedAt).toLocaleDateString('en-IN'),
-        time: c.meta?.time || new Date(c.postedAt).toLocaleTimeString('en-IN'),
         category: c.meta?.category || 'Notice',
         details: c.content,
       }));
@@ -62,13 +59,12 @@ export default function CircularsPage() {
       setFormData({
         title: entry.title,
         date: entry.date,
-        time: entry.time,
         category: entry.category,
         details: entry.details,
       });
     } else {
       setEditing(null);
-      setFormData({ title: '', date: '', time: '', category: 'Notice', details: '' });
+      setFormData({ title: '', date: '', category: 'Notice', details: '' });
     }
     setShowModal(true);
   };
@@ -91,7 +87,6 @@ export default function CircularsPage() {
                 content: formData.details,
                 meta: {
                   date: formData.date,
-                  time: formData.time,
                   category: formData.category,
                 },
               },
@@ -114,7 +109,6 @@ export default function CircularsPage() {
               priority: 'medium',
               meta: {
                 date: formData.date,
-                time: formData.time,
                 category: formData.category,
               },
             }),
@@ -176,7 +170,7 @@ export default function CircularsPage() {
                   <h3 className="text-lg font-semibold text-slate-900">{circular.title}</h3>
                   <p className="text-sm text-slate-600">{circular.category}</p>
                   <p className="text-xs text-slate-500 mt-1">
-                    {circular.date} • {circular.time}
+                    {circular.date}
                   </p>
                 </div>
                 {canManageCirculars && (
@@ -212,13 +206,6 @@ export default function CircularsPage() {
                   type="date"
                   value={formData.date}
                   onChange={(e) => setFormData({ ...formData, date: e.target.value })}
-                  className="w-full px-3 py-2 border border-slate-300 rounded-lg"
-                />
-                <input
-                  type="text"
-                  placeholder="Time"
-                  value={formData.time}
-                  onChange={(e) => setFormData({ ...formData, time: e.target.value })}
                   className="w-full px-3 py-2 border border-slate-300 rounded-lg"
                 />
                 <select

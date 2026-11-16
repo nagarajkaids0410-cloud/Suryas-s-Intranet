@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input';
 import { Card } from '@/components/ui/card';
 import { FileUp, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { EXTENDED_DOCUMENT_MAX_BYTES, isValidDocumentFile } from '@/lib/document-upload';
 
 export default function ProjectCreationPage() {
   const { isAuthenticated, user } = useAuth();
@@ -45,8 +46,8 @@ export default function ProjectCreationPage() {
   const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (file.type !== 'application/pdf') {
-        toast.error('Only PDF files are allowed for Abstract');
+      if (!isValidDocumentFile(file, ['pdf', 'doc', 'docx'], EXTENDED_DOCUMENT_MAX_BYTES)) {
+        toast.error('Choose a PDF or DOC/DOCX proposal file up to 10 MB');
         return;
       }
       setFormData((prev) => ({ ...prev, abstract: file, abstractFileName: file.name }));
@@ -56,7 +57,7 @@ export default function ProjectCreationPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.projectTitle || !formData.abstract || !formData.clientName || formData.remarks.trim().length < 5) {
+    if (!user?.phone?.trim() || !formData.projectTitle || !formData.abstract || !formData.clientName) {
       toast.error('Please fill in all required fields and upload the proposal form');
       return;
     }
@@ -105,6 +106,7 @@ export default function ProjectCreationPage() {
             projectTitle: formData.projectTitle,
             projectStatus: formData.projectStatus,
             createdBy: formData.createdBy,
+            phone: user?.phone,
             abstractFileName: formData.abstractFileName,
             clientName: formData.clientName,
             clientOrganization: formData.clientOrganization,
@@ -195,17 +197,16 @@ export default function ProjectCreationPage() {
                   <div>
                     <label className="block text-sm font-medium text-slate-700 mb-1">Created By</label>
                     <Input value={formData.createdBy} disabled className="bg-slate-100" />
+                    <p className="mt-1 text-xs text-slate-600">Phone Number *: {user?.phone || 'Update your profile phone number'}</p>
                   </div>
                 </div>
 
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Applicant Remarks *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Applicant Remarks</label>
                   <textarea
                     name="remarks"
                     value={formData.remarks}
                     onChange={handleInputChange}
-                    required
-                    minLength={5}
                     rows={3}
                     placeholder="Explain the purpose and context of this proposal"
                     className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-blue-500"
@@ -213,14 +214,14 @@ export default function ProjectCreationPage() {
                 </div>
 
                 <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Proposal Abstract (PDF) *</label>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Proposal Document (PDF or DOC/DOCX, up to 10 MB) *</label>
                   <div className="flex items-center gap-2">
                     <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-blue-300 rounded-lg cursor-pointer hover:bg-blue-50 transition">
                       <Upload size={18} className="text-blue-600" />
-                      <span className="text-sm text-blue-600 font-medium">Click to upload PDF</span>
+                      <span className="text-sm text-blue-600 font-medium">Click to upload proposal document</span>
                       <input
                         type="file"
-                        accept=".pdf"
+                        accept=".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
                         onChange={handleFileUpload}
                         className="hidden"
                       />
@@ -313,7 +314,7 @@ export default function ProjectCreationPage() {
 
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-slate-700 mb-1">Proposal Amount (₹, optional)</label>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Proposal Amount (₹)</label>
                     <Input
                       type="number"
                       name="projectAmount"

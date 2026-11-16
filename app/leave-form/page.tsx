@@ -10,6 +10,7 @@ import { Card } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { FileUp, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { isValidDocumentFile, STANDARD_DOCUMENT_MAX_BYTES } from '@/lib/document-upload';
 
 export default function LeaveFormPage() {
   const { isAuthenticated, user } = useAuth();
@@ -21,7 +22,7 @@ export default function LeaveFormPage() {
     designation: user?.designation || '',
     department: user?.department || '',
     email: user?.email || '',
-    phone: '',
+    phone: user?.phone || '',
     leaveType: 'casual',
     fromDate: '',
     toDate: '',
@@ -47,12 +48,17 @@ export default function LeaveFormPage() {
       designation: user?.designation || '',
       department: user?.department || '',
       email: user?.email || '',
+      phone: user?.phone || '',
     }));
   }, [isAuthenticated, router, user]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
-    setFormData((prev) => ({ ...prev, [name]: value }));
+    setFormData((prev) => ({
+      ...prev,
+      [name]: value,
+      ...(name === 'fromDate' ? { toDate: value } : {}),
+    }));
   };
 
   const handleSelectChange = (value: string) => {
@@ -67,8 +73,8 @@ export default function LeaveFormPage() {
   const handleFilledFormUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.includes('pdf') && !file.type.includes('image')) {
-        toast.error('Only PDF and image files are allowed');
+      if (!isValidDocumentFile(file, ['pdf'], STANDARD_DOCUMENT_MAX_BYTES)) {
+        toast.error('Choose a PDF file up to 5 MB');
         return;
       }
       setFormData((prev) => ({ ...prev, filledFormFile: file }));
@@ -79,12 +85,8 @@ export default function LeaveFormPage() {
   const handleMedicalDocumentUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      if (!file.type.includes('pdf') && !file.type.startsWith('image/')) {
-        toast.error('Upload a PDF certificate/prescription or a clear image');
-        return;
-      }
-      if (file.size > 10 * 1024 * 1024) {
-        toast.error('Medical document must be 10 MB or smaller');
+      if (!isValidDocumentFile(file, ['pdf'], STANDARD_DOCUMENT_MAX_BYTES)) {
+        toast.error('Medical document must be a PDF up to 5 MB');
         return;
       }
       setFormData((prev) => ({ ...prev, medicalDocument: file }));
@@ -126,13 +128,30 @@ export default function LeaveFormPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!formData.name || !formData.fromDate || !formData.toDate || !formData.reason) {
+    if (!formData.name || !formData.phone.trim() || !formData.fromDate || !formData.toDate || !formData.reason) {
       toast.error('Please fill in all required fields');
       return;
     }
 
     if (!validateDates()) {
       return;
+    }
+
+    const existingResponse = await fetch('/api/requests?target=all&mine=true&type=leave');
+    if (existingResponse.ok) {
+      const existingData = await existingResponse.json();
+      const duplicateDate = (existingData.requests || []).some((request: any) => {
+        const existingStart = request.payload?.fromDate;
+        const existingEnd = request.payload?.toDate || existingStart;
+        return typeof existingStart === 'string' &&
+          typeof existingEnd === 'string' &&
+          existingStart <= formData.fromDate &&
+          existingEnd >= formData.fromDate;
+      });
+      if (duplicateDate) {
+        toast.error('A leave request already exists for this date');
+        return;
+      }
     }
 
     if (isMedicalLeave && !formData.medicalDocument) {
@@ -225,7 +244,8 @@ export default function LeaveFormPage() {
       });
 
       if (!response.ok) {
-        toast.error('Failed to submit leave request');
+        const data = await response.json().catch(() => null);
+        toast.error(data?.error || 'Failed to submit leave request');
         return;
       }
 
@@ -237,7 +257,7 @@ export default function LeaveFormPage() {
         designation: user?.designation || '',
         department: user?.department || '',
         email: user?.email || '',
-        phone: '',
+        phone: user?.phone || '',
         leaveType: 'casual',
         fromDate: '',
         toDate: '',
@@ -300,14 +320,16 @@ export default function LeaveFormPage() {
                       <Input value={formData.email} disabled className="bg-slate-100" />
                     </div>
                     <div className="col-span-2">
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Phone Number *</label>
                       <Input
                         type="tel"
-                        name="phone"
-                        placeholder="Enter your phone number"
+                        required
+                        disabled
+                        placeholder="Update your profile phone number"
                         value={formData.phone}
-                        onChange={handleInputChange}
+                        className="bg-slate-100"
                       />
+                      <p className="mt-1 text-xs text-slate-500">Update your phone number in your profile.</p>
                     </div>
                   </div>
                 </div>
@@ -353,22 +375,13 @@ export default function LeaveFormPage() {
                       </label>
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4">
+                    <div>
                       <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">From Date *</label>
+                        <label className="block text-sm font-medium text-slate-700 mb-1">Leave Date *</label>
                         <Input
                           type="date"
                           name="fromDate"
                           value={formData.fromDate}
-                          onChange={handleInputChange}
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-slate-700 mb-1">To Date *</label>
-                        <Input
-                          type="date"
-                          name="toDate"
-                          value={formData.toDate}
                           onChange={handleInputChange}
                         />
                       </div>
@@ -387,14 +400,12 @@ export default function LeaveFormPage() {
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-slate-700 mb-1">Applicant Remarks *</label>
+                      <label className="block text-sm font-medium text-slate-700 mb-1">Applicant Remarks</label>
                       <textarea
                         name="remarks"
                         placeholder="Any remarks for approver"
                         value={formData.remarks}
                         onChange={handleInputChange}
-                        required
-                        minLength={5}
                         className="w-full px-3 py-2 border border-slate-300 rounded-md text-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                         rows={3}
                       />
@@ -403,9 +414,8 @@ export default function LeaveFormPage() {
                     {/* Mandatory Filled Form Upload */}
                     <div className="bg-amber-50 border border-amber-300 rounded-lg p-4">
                       <div className="flex items-start gap-2 mb-3">
-                        <span className="text-amber-600 text-xl">⚠️</span>
                         <div>
-                          <h3 className="font-semibold text-amber-900">Optional: Upload Filled Form</h3>
+                          <h3 className="font-semibold text-amber-900">Upload Filled Form</h3>
                           <p className="text-sm text-amber-700 mt-1">
                             Attach any supporting leave document here when needed.
                           </p>
@@ -414,13 +424,13 @@ export default function LeaveFormPage() {
                       <div className="flex items-center gap-2">
                         <Input
                           type="file"
-                          accept=".pdf,.jpg,.jpeg,.png"
+                          accept=".pdf,application/pdf"
                           onChange={(e) => handleFilledFormUpload(e)}
                           className="text-sm"
                         />
                         {filledFormFileName && (
                           <span className="text-sm text-green-600 font-medium">
-                            ✓ {filledFormFileName}
+                            {filledFormFileName}
                           </span>
                         )}
                       </div>
@@ -429,14 +439,14 @@ export default function LeaveFormPage() {
                     {isMedicalLeave && (
                       <div>
                         <label className="block text-sm font-medium text-slate-700 mb-1">Medical Certificate or Prescription *</label>
-                        <p className="text-xs text-slate-500 mb-2">Upload a certificate or prescription (PDF or image). Required for Medical Leave.</p>
+                        <p className="text-xs text-slate-500 mb-2">Upload a medical certificate or prescription PDF up to 5 MB. Required for Medical Leave.</p>
                         <div className="flex items-center gap-2">
                           <label className="flex-1 flex items-center justify-center gap-2 px-4 py-3 border-2 border-dashed border-blue-300 rounded-lg cursor-pointer hover:bg-blue-50 transition">
                             <Upload size={18} className="text-blue-600" />
                             <span className="text-sm text-blue-600 font-medium">Upload certificate or prescription</span>
                             <input
                               type="file"
-                              accept=".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png"
+                              accept=".pdf,application/pdf"
                               onChange={handleMedicalDocumentUpload}
                               className="hidden"
                             />

@@ -18,7 +18,7 @@ import {
 import {
   Home,
   FileText,
-  DollarSign,
+  Receipt,
   FolderPlus,
   BarChart3,
   Users,
@@ -34,6 +34,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { isReportSubmissionRestricted } from '@/lib/report-access';
+import { type ReportingPeriod, useReportingPeriod } from '@/lib/reporting-period';
 
 interface MainLayoutProps {
   children: React.ReactNode;
@@ -42,7 +43,8 @@ interface MainLayoutProps {
 export default function MainLayout({ children }: MainLayoutProps) {
   const router = useRouter();
   const { user, logout } = useAuth();
-  const [sidebarOpen, setSidebarOpen] = useState(true);
+  const { period, setPeriod, selectedDate, setSelectedDate } = useReportingPeriod();
+  const [sidebarOpen, setSidebarOpen] = useState(false);
   const [currentTime, setCurrentTime] = useState(new Date());
   const [showProfileEditor, setShowProfileEditor] = useState(false);
 
@@ -60,6 +62,21 @@ export default function MainLayout({ children }: MainLayoutProps) {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
+
+  React.useEffect(() => {
+    const savedSidebarState = window.localStorage.getItem('main-layout-sidebar-open');
+    if (savedSidebarState !== null) {
+      setSidebarOpen(savedSidebarState === 'true');
+    } else if (window.matchMedia('(min-width: 768px)').matches) {
+      setSidebarOpen(true);
+      window.localStorage.setItem('main-layout-sidebar-open', 'true');
+    }
+  }, []);
+
+  const updateSidebarOpen = (isOpen: boolean) => {
+    setSidebarOpen(isOpen);
+    window.localStorage.setItem('main-layout-sidebar-open', String(isOpen));
+  };
 
 
   const handleLogout = () => {
@@ -88,7 +105,8 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const founderNavItems = [
     ...adminNavItems,
     { label: 'Leave Application', icon: FileText, href: '/leave-form' },
-    { label: 'Allowance Claim', icon: DollarSign, href: '/ta-claim' },
+    { label: 'Allowance Claim', icon: Receipt, href: '/ta-claim' },
+    { label: 'Project Proposal', icon: FolderPlus, href: '/project-creation' },
   ];
 
   const guestNavItems: Array<{ label: string; icon: typeof Home; href: string }> = [
@@ -103,7 +121,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     { label: 'Relieving & Certificates', icon: FileText, href: '/service-requests' },
     { label: 'Approvals', icon: FileText, href: '/admin/approvals' },
     { label: 'Leave Application', icon: FileText, href: '/leave-form' },
-    { label: 'Allowance Claim', icon: DollarSign, href: '/ta-claim' },
+    { label: 'Allowance Claim', icon: Receipt, href: '/ta-claim' },
     { label: 'Project Proposal', icon: FolderPlus, href: '/project-creation' },
     { label: 'Internal Requests', icon: FileText, href: '/internal-requests' },
     { label: 'Circulars', icon: FileText, href: '/circulars' },
@@ -117,7 +135,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
     { label: 'Tasks', icon: ClipboardList, href: '/tasks' },
     { label: 'Relieving & Certificates', icon: FileText, href: '/service-requests' },
     { label: 'Leave Form', icon: FileText, href: '/leave-form' },
-    { label: 'Allowance Claim', icon: DollarSign, href: '/ta-claim' },
+    { label: 'Allowance Claim', icon: Receipt, href: '/ta-claim' },
     { label: 'Proposal', icon: FolderPlus, href: '/project-creation' },
     { label: 'Reports', icon: BarChart3, href: '/reports' },
     { label: 'Internal Requests', icon: FileText, href: '/internal-requests' },
@@ -142,12 +160,12 @@ export default function MainLayout({ children }: MainLayoutProps) {
   const logoImg = '/company-logo.png';
 
   return (
-    <div className="min-h-screen bg-slate-50 flex">
+    <div className="min-h-screen min-w-0 overflow-x-hidden bg-slate-50 flex">
       {/* Sidebar */}
       <div
         className={`${
-          sidebarOpen ? 'w-64' : 'w-20'
-        } bg-gradient-to-b from-slate-900 to-slate-800 text-white transition-all duration-300 fixed h-screen flex flex-col shadow-2xl z-50`}
+          sidebarOpen ? 'w-64 translate-x-0' : 'w-20 -translate-x-full md:translate-x-0'
+        } bg-gradient-to-b from-slate-900 to-slate-800 text-white transition-all duration-300 fixed inset-y-0 left-0 h-dvh flex flex-col shadow-2xl z-50 md:translate-x-0`}
       >
         {/* Logo Section */}
         <div className="p-4 border-b border-slate-700 flex items-center justify-between">
@@ -158,7 +176,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
             {sidebarOpen && <span className="text-sm font-bold whitespace-nowrap">SURYAS MiB ENTERPRISES</span>}
           </Link>
           <button
-            onClick={() => setSidebarOpen(!sidebarOpen)}
+            onClick={() => updateSidebarOpen(!sidebarOpen)}
             className="p-1 hover:bg-slate-700 rounded text-white"
           >
             {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
@@ -172,6 +190,9 @@ export default function MainLayout({ children }: MainLayoutProps) {
               <Link
                 key={item.href}
                 href={item.href}
+                onClick={() => {
+                  if (window.matchMedia('(max-width: 767px)').matches) updateSidebarOpen(false);
+                }}
                 className="flex items-center gap-3 px-4 py-3 rounded-lg hover:bg-slate-700 transition text-slate-100 hover:text-white group"
                 title={!sidebarOpen ? item.label : ''}
               >
@@ -195,26 +216,79 @@ export default function MainLayout({ children }: MainLayoutProps) {
         </div>
       </div>
 
+      {sidebarOpen && (
+        <button
+          type="button"
+          aria-label="Close navigation menu"
+          onClick={() => updateSidebarOpen(false)}
+          className="fixed inset-0 z-40 bg-black/40 md:hidden"
+        />
+      )}
+
       {/* Main Content */}
-      <div className={`${sidebarOpen ? 'ml-64' : 'ml-20'} flex-1 flex flex-col transition-all duration-300`}>
+      <div className={`${sidebarOpen ? 'md:ml-64' : 'md:ml-20'} min-w-0 w-full flex-1 flex flex-col transition-all duration-300`}>
         {/* Top Header */}
         <div className="bg-white border-b border-slate-200 shadow-sm sticky top-0 z-40">
-          <div className="px-6 py-4 flex items-center justify-between">
-            <div className="flex items-center gap-4">
-              <img src={logoImg} alt="SURYAS MiB ENTERPRISES logo" className="h-12 w-36 object-contain" />
-              <div className="flex items-center gap-4">
-                <Clock size={18} className="text-slate-500" />
-                <span className="text-sm text-slate-600">
-                  {currentTime.toLocaleString('en-IN', {
-                    dateStyle: 'medium',
-                    timeStyle: 'short',
-                  })}
+          <div className="flex flex-wrap items-center justify-between gap-2 px-3 py-3 sm:px-6 sm:py-4 lg:flex-nowrap">
+            <div className="flex min-w-0 items-center gap-2 sm:gap-4">
+              <button
+                type="button"
+                aria-label={sidebarOpen ? 'Close navigation menu' : 'Open navigation menu'}
+                onClick={() => updateSidebarOpen(!sidebarOpen)}
+                className="rounded p-2 text-slate-700 hover:bg-slate-100 md:hidden"
+              >
+                {sidebarOpen ? <X size={20} /> : <Menu size={20} />}
+              </button>
+              <img src={logoImg} alt="SURYAS MiB ENTERPRISES logo" className="h-9 w-24 shrink-0 object-contain sm:h-12 sm:w-36 lg:h-9 lg:w-24" />
+              <div className="hidden shrink-0 items-center gap-2 lg:flex">
+                <Clock size={16} className="text-slate-500" />
+                <span className="whitespace-nowrap text-xs text-slate-600">
+                  {new Intl.DateTimeFormat('en-IN', {
+                    day: '2-digit',
+                    month: 'short',
+                    year: 'numeric',
+                    hour: '2-digit',
+                    minute: '2-digit',
+                    hour12: true,
+                  }).format(currentTime)}
                 </span>
               </div>
             </div>
 
             {/* User Profile Dropdown */}
-            <div className="flex items-center gap-2">
+            <div className="ml-auto flex min-w-0 flex-wrap items-center justify-end gap-2 lg:flex-nowrap">
+              {!isGuest && (
+                <div className="flex flex-wrap items-center justify-end gap-2 lg:flex-nowrap">
+                  <label className="flex items-center gap-1 text-xs text-slate-600">
+                    Period
+                    <select
+                      aria-label="Shared reporting period"
+                      className="max-w-32 rounded-md border border-slate-300 bg-white px-1.5 py-2 text-xs text-slate-800 sm:max-w-none sm:px-2 sm:text-sm"
+                      value={period}
+                      onChange={(event) => setPeriod(event.target.value as ReportingPeriod)}
+                    >
+                      <option value="this-month">This month</option>
+                      <option value="previous-month">Previous month</option>
+                      <option value="last-three-months">Past 3 months</option>
+                    </select>
+                  </label>
+                  <label className="flex items-center gap-1 text-xs text-slate-600">
+                    Date
+                    <input
+                      type="date"
+                      aria-label="Shared reporting date"
+                      className="w-32 rounded-md border border-slate-300 bg-white px-1.5 py-2 text-xs text-slate-800 sm:w-auto sm:px-2 sm:text-sm"
+                      value={selectedDate}
+                      onChange={(event) => setSelectedDate(event.target.value)}
+                    />
+                  </label>
+                  {selectedDate && (
+                    <button type="button" className="text-xs text-blue-700 underline" onClick={() => setSelectedDate('')}>
+                      Clear
+                    </button>
+                  )}
+                </div>
+              )}
               {/* Notification Bell */}
               {!isGuest && <NotificationBell />}
 
@@ -288,13 +362,13 @@ export default function MainLayout({ children }: MainLayoutProps) {
                         <User size={16} className="mr-2" />
                         Edit Profile
                       </DropdownMenuItem>
-                      {isAdmin && (
+                      {isAdmin && !isFounder && (
                         <DropdownMenuItem>
                           <Share2 size={16} className="mr-2" />
                           Management Console
                         </DropdownMenuItem>
                       )}
-                      {isAdmin && <DropdownMenuSeparator />}
+                      {isAdmin && !isFounder && <DropdownMenuSeparator />}
                     </>
                   )}
                   <DropdownMenuItem onClick={handleLogout} className="text-red-600 cursor-pointer">
@@ -308,7 +382,7 @@ export default function MainLayout({ children }: MainLayoutProps) {
         </div>
 
         {/* Page Content */}
-        <div className="flex-1 overflow-auto p-6">{children}</div>
+        <div className="min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto p-4 sm:p-6">{children}</div>
       </div>
 
       <ProfileSetupModal

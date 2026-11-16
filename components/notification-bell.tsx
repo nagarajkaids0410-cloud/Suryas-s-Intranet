@@ -13,19 +13,78 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { Button } from '@/components/ui/button';
+import { useAuth } from '@/lib/auth-context';
 
 export function NotificationBell() {
   const { notifications, unreadCount, markAsRead, markAllAsRead } = useNotifications();
   const visibleNotifications = notifications.filter((notif) => !notif.read);
   const router = useRouter();
+  const { user } = useAuth();
 
-  const handleNotificationClick = async (notif: { id: string; type?: string }) => {
-    await markAsRead(notif.id);
-    if (notif.type === 'user_access_request') {
-      router.push('/admin-dashboard#access-requests');
-    } else if (notif.type === 'project_team_assigned') {
-      router.push('/dashboard');
+  const handleNotificationClick = async (notif: { id: string; type?: string; title?: string; relatedId?: string }) => {
+    void markAsRead(notif.id);
+    const directDestinations: Record<string, string> = {
+      user_access_request: '/admin-dashboard#access-requests',
+      registration_approval: '/admin-dashboard#access-requests',
+      project_team_assigned: '/dashboard',
+      project_closed: '/dashboard',
+      data_retention_approval: '/admin-dashboard#data-retention',
+      data_retention_completed: '/admin-dashboard#data-retention',
+      internal_service_request: '/internal-requests',
+      'internal-service-request': '/internal-requests',
+      leave: '/admin/leave-management',
+      ta: '/admin/ta-claims',
+      project: '/admin/project-approvals',
+      certificate: '/service-requests',
+      report: '/reports',
+      attendance: '/attendance',
+      inquiry: '/admin-dashboard',
+    };
+    const directDestination = notif.type ? directDestinations[notif.type] : undefined;
+    const directFirstTypes = new Set([
+      'user_access_request',
+      'registration_approval',
+      'project_team_assigned',
+      'project_closed',
+      'data_retention_approval',
+      'data_retention_completed',
+      'internal_service_request',
+      'internal-service-request',
+    ]);
+    if (directDestination && notif.type && directFirstTypes.has(notif.type)) {
+      router.push(directDestination);
+      return;
     }
+    if (notif.relatedId) {
+      try {
+        const params = new URLSearchParams({
+          target: 'all',
+          requestId: notif.relatedId,
+          compact: 'true',
+        });
+        if (user?.role === 'admin' || (user?.role === 'founder' && user.username.toLowerCase() === 'gkbharath')) {
+          params.set('scope', 'dashboard');
+        }
+        const response = await fetch(`/api/requests?${params.toString()}`);
+        if (response.ok) {
+          const data = await response.json();
+          const request = data.request;
+          if (request?.type === 'internal-service') {
+            router.push(`/internal-requests?requestId=${encodeURIComponent(request.id)}`);
+            return;
+          }
+          if (request?.type && request?.id) {
+            const isRequester = request.createdById === user?.id;
+            const basePath = isRequester ? '/my-requests' : '/admin/approvals';
+            router.push(`${basePath}?type=${encodeURIComponent(request.type)}&requestId=${encodeURIComponent(request.id)}`);
+            return;
+          }
+        }
+      } catch (error) {
+        console.error('Unable to open the related request:', error);
+      }
+    }
+    if (directDestination) router.push(directDestination);
   };
 
   const formatTimestamp = (timestamp: string) => {

@@ -3,7 +3,7 @@ import React, { useEffect, useState } from 'react';
 const approverNames: Record<string, string> = {
   hareeshv: 'Hareesh V',
   santhanakumarv: 'Santhana Kumar V',
-  gkbharath: 'G. K. Bharath',
+  gkbharath: 'Golla Kumar Bharath',
 };
 
 let approverDirectoryPromise: Promise<Record<string, { fullName?: string; designation?: string }>> | undefined;
@@ -54,7 +54,7 @@ export function RequestApprovalDetails({ request }: RequestApprovalDetailsProps)
   const chain: string[] = Array.isArray(request.payload?.approvalChain)
     ? request.payload.approvalChain
     : [];
-  const history: Array<{ by?: string; comment?: string; decision?: string; at?: string; stageIndex?: number }> =
+  const history: Array<{ by?: string; byDisplayName?: string; comment?: string; decision?: string; at?: string; stageIndex?: number }> =
     Array.isArray(request.payload?.comments) ? request.payload.comments : [];
   const currentIndex = request.status === 'forwarded'
     ? request.payload?.currentApproverIndex
@@ -66,33 +66,28 @@ export function RequestApprovalDetails({ request }: RequestApprovalDetailsProps)
     ? history.find((entry) => entry.decision === request.status || (request.status === 'approved' && entry.decision === 'issue'))
     : undefined;
   const nameFor = (username?: string) => username
-    ? directory[username.toLowerCase()]?.fullName ||
+    ? approverNames[username.toLowerCase()] ||
+      directory[username.toLowerCase()]?.fullName ||
       directory[username.toLowerCase()]?.designation ||
-      approverNames[username.toLowerCase()] ||
       username
     : 'Approver';
+  const formatStatus = (status: string) => status.replaceAll('_', ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
 
   return (
     <details className="mt-3 rounded border border-slate-200 bg-white p-3 text-sm">
-      <summary className="cursor-pointer font-medium text-slate-800">Status</summary>
+      <summary className="cursor-pointer font-medium text-slate-800">Approval details</summary>
       <div className="mt-3 space-y-2 text-slate-600">
-        <p><strong>Request ID:</strong> {request.id}</p>
-        <p><strong>Submission ID:</strong> {request.submissionId || request.id}</p>
-        <p><strong>Pending approval from:</strong> {currentApprover ? nameFor(currentApprover) : 'None'}</p>
-        <p><strong>Current status:</strong> {request.status === 'forwarded' ? `Forwarded to ${nameFor(request.forwardedTo || currentApprover)}` : request.status}</p>
+        <p><strong>Reference:</strong> {request.submissionId || request.id}</p>
+        <p><strong>Next approver:</strong> {currentApprover ? nameFor(currentApprover) : 'None'}</p>
+        <p><strong>Status:</strong> {request.status === 'forwarded' ? `Forwarded to ${nameFor(request.forwardedTo || currentApprover)}` : formatStatus(request.status)}</p>
         {finalDecision && (
           <p>
-            <strong>Final decision:</strong> {request.status === 'approved' ? 'Approved' : 'Rejected'} by {nameFor(finalDecision.by)}
+            <strong>Decision:</strong> {request.status === 'approved' ? 'Approved' : 'Rejected'} by {finalDecision.byDisplayName || nameFor(finalDecision.by)}
             {finalDecision.at ? ` on ${new Date(finalDecision.at).toLocaleString('en-IN')}` : ''}
           </p>
         )}
         <div>
-          <strong>Approval route:</strong>
-          {request.payload?.guideId && chain.length > 1 && (
-            <p className="mt-1">
-              Intern guide recommendation, then authorized approval: {chain.map((username) => nameFor(username)).join(' → ')}
-            </p>
-          )}
+          <strong>Approval steps:</strong>
           {chain.length > 0 ? (
             <ol className="ml-5 mt-1 list-decimal">
               {chain.map((username, index) => {
@@ -104,7 +99,7 @@ export function RequestApprovalDetails({ request }: RequestApprovalDetailsProps)
                 return (
                   <li key={`${username}-${index}`}>
                     {nameFor(username)} — {action
-                      ? `${action.decision === 'recommend' ? 'Recommended' : action.decision === 'reject' ? 'Rejected' : action.decision === 'issue' ? 'Approved and document issued' : 'Approved / concurred'}${action.at ? ` · ${new Date(action.at).toLocaleString('en-IN')}` : ''}`
+                      ? `${action.decision === 'recommend' ? 'Recommended' : action.decision === 'reject' ? 'Rejected' : action.decision === 'issue' ? 'Approved and issued' : index < chain.length - 1 ? 'Approved & Forwarded' : 'Approved'}${action.at ? ` · ${new Date(action.at).toLocaleString('en-IN')}` : ''}`
                       : index === currentIndex
                         ? 'Awaiting decision'
                         : 'Not reached'}
@@ -117,7 +112,7 @@ export function RequestApprovalDetails({ request }: RequestApprovalDetailsProps)
             <p className="mt-1">No approval route is recorded.</p>
           )}
         </div>
-        <p><strong>Applicant remarks:</strong> {request.remarks || request.payload?.remarks || '—'}</p>
+        <p><strong>Remarks:</strong> {request.remarks || request.payload?.remarks || '—'}</p>
         <p><strong>Submitted:</strong> {new Date(request.createdAt).toLocaleString('en-IN')}</p>
       </div>
     </details>

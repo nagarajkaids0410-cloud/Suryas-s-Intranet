@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { requireRole } from '@/lib/rbac';
-import { findUserById, updateUserById } from '@/lib/user-database';
+import { findUserById, updateUserById, syncUsersWithDb, saveUserToPostgres } from '@/lib/user-database';
 import { updateUserInDB } from '@/lib/user-db';
 import { addAuditEntry } from '@/lib/audit-log';
 
@@ -33,10 +33,13 @@ export async function POST(request: NextRequest) {
       passwordHash: await bcrypt.hash(newPassword, 12),
       mustChangePassword: false,
     };
-    updateUserById(user.id, updates);
-    if (!updateUserInDB(user.id, updates)) {
-      return NextResponse.json({ error: 'Unable to persist password change' }, { status: 500 });
+    const updated = updateUserById(user.id, updates);
+    if (updated) {
+      await saveUserToPostgres(updated);
     }
+    try {
+      updateUserInDB(user.id, updates);
+    } catch {}
 
     addAuditEntry({
       action: 'auth:password_changed',

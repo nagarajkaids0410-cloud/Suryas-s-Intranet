@@ -1,12 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
 import { randomUUID } from 'node:crypto';
-import { findUserByUsername, addUser, getAllUsers, StoredUser } from '@/lib/user-database';
+import { findUserByUsername, addUser, getAllUsers, StoredUser, syncUsersWithDb, saveUserToPostgres } from '@/lib/user-database';
 import { addNotificationDB } from '@/lib/notification-db';
 import { getNextEmployeeId } from '@/lib/employee-id';
 
 export async function POST(request: NextRequest) {
   try {
+    // Ensure memory is synchronized with Supabase database
+    await syncUsersWithDb();
+
     const body = await request.json();
     const username = typeof body.username === 'string' ? body.username.trim() : '';
     const email = typeof body.email === 'string' ? body.email.trim().toLowerCase() : '';
@@ -73,8 +76,9 @@ export async function POST(request: NextRequest) {
       createdAt: new Date().toISOString(),
     };
 
-    // Save to DB (in-memory + file)
+    // Save to DB (in-memory + Supabase Postgres)
     const savedUser = addUser(newUser);
+    await saveUserToPostgres(savedUser);
 
     addNotificationDB({
       type: 'user_access_request',

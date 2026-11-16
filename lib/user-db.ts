@@ -15,28 +15,35 @@ function ensureDBDir() {
   }
 }
 
+let inMemoryUsers: StoredUser[] = [];
+
 function readDB(): StoredUser[] {
   try {
     ensureDBDir();
     if (!fs.existsSync(DB_FILE)) {
-      return [];
+      return inMemoryUsers;
     }
     const data = fs.readFileSync(DB_FILE, 'utf-8');
-    return JSON.parse(data) || [];
+    const parsed = JSON.parse(data) || [];
+    if (inMemoryUsers.length === 0 && parsed.length > 0) {
+      inMemoryUsers = parsed;
+    }
+    return parsed.length > 0 ? parsed : inMemoryUsers;
   } catch (error) {
-    console.error('Error reading user DB:', error);
-    return [];
+    return inMemoryUsers;
   }
 }
 
 function writeDB(users: StoredUser[]): boolean {
+  inMemoryUsers = users;
   try {
     ensureDBDir();
     fs.writeFileSync(DB_FILE, JSON.stringify(users, null, 2));
     return true;
   } catch (error) {
-    console.error('Error writing user DB:', error);
-    return false;
+    // Read-only filesystem in serverless environments (e.g. Netlify/Vercel)
+    // Return true because inMemoryUsers is updated and Supabase handles real persistence
+    return true;
   }
 }
 

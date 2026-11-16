@@ -3,7 +3,7 @@ import { randomBytes } from 'node:crypto';
 import bcrypt from 'bcryptjs';
 import { addAuditEntry } from '@/lib/audit-log';
 import { requireRole } from '@/lib/rbac';
-import { findUserById, updateUserById } from '@/lib/user-database';
+import { findUserById, updateUserById, syncUsersWithDb, saveUserToPostgres } from '@/lib/user-database';
 import { updateUserInDB } from '@/lib/user-db';
 
 export async function POST(request: NextRequest) {
@@ -11,6 +11,7 @@ export async function POST(request: NextRequest) {
   if (actor instanceof NextResponse) return actor;
 
   try {
+    await syncUsersWithDb();
     const body = await request.json();
     const userId = typeof body.userId === 'string' ? body.userId.trim() : '';
     if (!userId) {
@@ -38,13 +39,15 @@ export async function POST(request: NextRequest) {
       sessionVersion: (target.sessionVersion ?? 0) + 1,
     };
 
-    if (!updateUserInDB(target.id, updates)) {
-      return NextResponse.json({ error: 'Unable to persist the password reset' }, { status: 500 });
-    }
-    if (!updateUserById(target.id, updates)) {
-      console.error('Password reset persisted, but in-memory user cache could not be updated', { targetUserId: target.id });
+    const updated = updateUserById(target.id, updates);
+    if (!updated) {
+      console.error('Password reset could not update user cache', { targetUserId: target.id });
       return NextResponse.json({ error: 'Password reset was saved but could not refresh the user session. Contact support.' }, { status: 500 });
     }
+    await saveUserToPostgres(updated);
+    try {
+      updateUserInDB(target.id, updates);
+    } catch {}
 
     const auditEntry = addAuditEntry({
       action: 'auth:admin_password_reset',

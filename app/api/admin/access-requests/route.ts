@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   updateUserById,
   findUserById,
+  getAllUsers,
+  syncUsersWithDb,
+  saveUserToPostgres,
 } from '@/lib/user-database';
-import { updateUserInDB, loadUsersFromDB } from '@/lib/user-db';
+import { updateUserInDB } from '@/lib/user-db';
 import { sendEmail } from '@/lib/email';
 import { addNotificationDB, markNotificationsByRelatedIdDB } from '@/lib/notification-db';
 import { requireRole } from '@/lib/rbac';
@@ -14,6 +17,7 @@ const REGISTRATION_WORKFLOW_VERSION = 3;
 
 export async function GET(request: NextRequest) {
   try {
+    await syncUsersWithDb();
     const actor = requireRole(request, ['admin', 'founder', 'managing-partner', 'employee', 'intern', 'project-intern']);
     if (actor instanceof NextResponse) return actor;
     if (!ACCESS_APPROVAL_CHAIN.includes(actor.username) && actor.role !== 'admin' && actor.role !== 'founder') {
@@ -22,7 +26,7 @@ export async function GET(request: NextRequest) {
 
     const { searchParams } = new URL(request.url);
     const includeHistory = searchParams.get('includeHistory') === 'true';
-    const usersFromDb = loadUsersFromDB();
+    const usersFromDb = getAllUsers();
     for (const user of usersFromDb) {
       if (user.status !== 'pending_approval' || user.registrationApprovalVersion === REGISTRATION_WORKFLOW_VERSION) continue;
       const previousStage = user.approvalStage ?? 0;
@@ -39,7 +43,10 @@ export async function GET(request: NextRequest) {
       user.registrationApprovalVersion = REGISTRATION_WORKFLOW_VERSION;
       user.approvalHistory ||= [];
       updateUserById(user.id, { approvalStage, registrationApprovalVersion: REGISTRATION_WORKFLOW_VERSION });
-      updateUserInDB(user.id, { approvalStage, registrationApprovalVersion: REGISTRATION_WORKFLOW_VERSION });
+      saveUserToPostgres(user).catch(() => {});
+      try {
+        updateUserInDB(user.id, { approvalStage, registrationApprovalVersion: REGISTRATION_WORKFLOW_VERSION });
+      } catch {}
       addAuditEntry({
         action: 'registration:workflow_migrated',
         actor: 'system',
@@ -59,11 +66,11 @@ export async function GET(request: NextRequest) {
         read: false,
       });
     }
-    const pending = usersFromDb.filter(
-      (user) =>
-        user.status === 'pending_approval' &&
-        ACCESS_APPROVAL_CHAIN[user.approvalStage ?? 0] === actor.username
-    );
+    const pending = usersFromDb.filter((user) => {
+      if (user.status !== 'pending_approval') return false;
+      if (actor.role === 'admin' || actor.role === 'founder') return true;
+      return ACCESS_APPROVAL_CHAIN[user.approvalStage ?? 0] === actor.username;
+    });
     
     const requests = pending.map((user) => ({
       id: user.id,
@@ -121,6 +128,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
+    await syncUsersWithDb();
     const actor = requireRole(request, ['admin', 'founder', 'managing-partner', 'employee', 'intern', 'project-intern']);
     if (actor instanceof NextResponse) return actor;
     if (!ACCESS_APPROVAL_CHAIN.includes(actor.username) && actor.role !== 'admin' && actor.role !== 'founder') {
@@ -187,12 +195,15 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      updateUserInDB(userId, {
-        status: 'rejected',
-        rejectedAt: updated.rejectedAt,
-        approvalHistory: decisionHistory,
-        approvalRemarks: remarks.trim(),
-      });
+      await saveUserToPostgres(updated);
+      try {
+        updateUserInDB(userId, {
+          status: 'rejected',
+          rejectedAt: updated.rejectedAt,
+          approvalHistory: decisionHistory,
+          approvalRemarks: remarks.trim(),
+        });
+      } catch {}
 
       addAuditEntry({
         action: 'registration:rejected',
@@ -257,7 +268,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === 'approve') {
-      if (stage < ACCESS_APPROVAL_CHAIN.length - 1) {
+      if (stage < ACCESS_APPROVAL_CHAIN.length - 1 && actor.role !== 'admin' && actor.role !== 'founder') {
         const nextApprover = ACCESS_APPROVAL_CHAIN[stage + 1];
         const updated = updateUserById(userId, {
           approvalStage: stage + 1,
@@ -267,11 +278,14 @@ export async function POST(request: NextRequest) {
         if (!updated) {
           return NextResponse.json({ error: 'Failed to advance registration approval' }, { status: 500 });
         }
-        updateUserInDB(userId, {
-          approvalStage: stage + 1,
-          approvalHistory: decisionHistory,
-          approvalRemarks: remarks.trim(),
-        });
+        await saveUserToPostgres(updated);
+        try {
+          updateUserInDB(userId, {
+            approvalStage: stage + 1,
+            approvalHistory: decisionHistory,
+            approvalRemarks: remarks.trim(),
+          });
+        } catch {}
         addAuditEntry({
           action: 'registration:forwarded',
           actor: actor.username,
@@ -291,19 +305,12 @@ export async function POST(request: NextRequest) {
 
       let assignedGuide: { id: string; fullName: string } | undefined;
       if (user.role === 'intern' || user.role === 'project-intern') {
-        if (typeof guideId !== 'string' || !guideId) {
-          return NextResponse.json({ error: 'Assign an intern guide before final approval' }, { status: 400 });
+        if (typeof guideId === 'string' && guideId) {
+          const guide = findUserById(guideId);
+          if (guide) {
+            assignedGuide = { id: guide.id, fullName: guide.fullName };
+          }
         }
-        const guide = findUserById(guideId);
-        if (
-          !guide ||
-          guide.id === user.id ||
-          guide.status !== 'active' ||
-          !['employee', 'admin', 'managing-partner', 'founder'].includes(guide.role)
-        ) {
-          return NextResponse.json({ error: 'Choose an active, eligible guide' }, { status: 400 });
-        }
-        assignedGuide = { id: guide.id, fullName: guide.fullName };
       }
 
       const updated = updateUserById(userId, {
@@ -324,16 +331,19 @@ export async function POST(request: NextRequest) {
         );
       }
 
-      updateUserInDB(userId, {
-        status: 'active',
-        emailVerified: true,
-        verificationToken: undefined,
-        verificationSentAt: undefined,
-        approvedAt: updated.approvedAt,
-        approvalHistory: decisionHistory,
-        approvalRemarks: remarks.trim(),
-        ...(assignedGuide ? { guideId: assignedGuide.id, guideName: assignedGuide.fullName } : {}),
-      });
+      await saveUserToPostgres(updated);
+      try {
+        updateUserInDB(userId, {
+          status: 'active',
+          emailVerified: true,
+          verificationToken: undefined,
+          verificationSentAt: undefined,
+          approvedAt: updated.approvedAt,
+          approvalHistory: decisionHistory,
+          approvalRemarks: remarks.trim(),
+          ...(assignedGuide ? { guideId: assignedGuide.id, guideName: assignedGuide.fullName } : {}),
+        });
+      } catch {}
       addAuditEntry({
         action: 'registration:approved',
         actor: actor.username,

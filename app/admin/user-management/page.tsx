@@ -62,7 +62,7 @@ export default function UserManagement() {
       const data = await refreshedUsers.json();
       setUsers(data.users || []);
     }
-    toast.success(status === 'suspended' ? 'User suspended' : 'User reactivated');
+    toast.success(status === 'suspended' ? 'User suspended' : 'User approved and activated successfully');
   };
 
   const handleGuideAssignment = async (intern: any) => {

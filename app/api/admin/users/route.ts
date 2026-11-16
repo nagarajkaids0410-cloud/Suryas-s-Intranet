@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findUserById, getAllUsers, updateUserById } from '@/lib/user-database';
+import { findUserById, getAllUsers, updateUserById, syncUsersWithDb, saveUserToPostgres } from '@/lib/user-database';
 import { requireRole } from '@/lib/rbac';
 import { updateUserInDB } from '@/lib/user-db';
 
@@ -7,6 +7,7 @@ export async function GET(request: NextRequest) {
   const auth = requireRole(request, ['admin', 'founder']);
   if (auth instanceof NextResponse) return auth;
 
+  await syncUsersWithDb();
   const users = getAllUsers().map(({ passwordHash, verificationToken, resetToken, resetTokenExpiresAt, ...rest }) => rest);
   return NextResponse.json({ success: true, users });
 }
@@ -15,6 +16,8 @@ export async function PATCH(request: NextRequest) {
   try {
     const auth = requireRole(request, ['admin', 'founder']);
     if (auth instanceof NextResponse) return auth;
+
+    await syncUsersWithDb();
 
     const body = await request.json();
     const { userId, updates } = body as { userId: string; updates: Record<string, unknown> };
@@ -115,8 +118,11 @@ export async function PATCH(request: NextRequest) {
     if (!updated) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
     }
-    if (!updateUserInDB(userId, safeUpdates)) {
-      return NextResponse.json({ error: 'Unable to persist user update' }, { status: 500 });
+    await saveUserToPostgres(updated);
+    try {
+      updateUserInDB(userId, safeUpdates);
+    } catch {
+      // Local JSON file is read-only on serverless
     }
 
     try {

@@ -1,10 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server';
 import bcrypt from 'bcryptjs';
-import { findUserByUsername } from '@/lib/user-database';
+import { findUserByUsername, syncUsersWithDb } from '@/lib/user-database';
 import { createSessionToken, setSessionCookie } from '@/lib/session';
 
 export async function POST(request: NextRequest) {
   try {
+    // Ensure memory is synchronized with Supabase database
+    await syncUsersWithDb();
+
     const body = await request.json();
     const { username, password } = body;
 

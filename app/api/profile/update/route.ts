@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { findUserById, updateUserById } from '@/lib/user-database';
+import { findUserById, updateUserById, syncUsersWithDb, saveUserToPostgres } from '@/lib/user-database';
 import { updateUserInDB } from '@/lib/user-db';
 import { requireRole } from '@/lib/rbac';
 
@@ -26,6 +26,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: 'Missing update payload' }, { status: 400 });
     }
 
+    await syncUsersWithDb();
     const currentUser = findUserById(auth.id);
     if (!currentUser) {
       return NextResponse.json({ error: 'User not found' }, { status: 404 });
@@ -70,15 +71,16 @@ export async function POST(request: NextRequest) {
       const department = updatePayload.department.trim();
       updatePayload.department = department.charAt(0).toUpperCase() + department.slice(1);
     }
-    updateUserById(auth.id, updatePayload);
-    const persisted = updateUserInDB(auth.id, updatePayload);
-
-    if (!persisted) {
+    const updated = updateUserById(auth.id, updatePayload);
+    if (!updated) {
       return NextResponse.json({ error: 'Failed to update user' }, { status: 500 });
     }
+    await saveUserToPostgres(updated);
+    try {
+      updateUserInDB(auth.id, updatePayload);
+    } catch {}
 
-    const { passwordHash, ...userWithoutPassword } = persisted;
-
+    const { passwordHash, ...userWithoutPassword } = updated;
     return NextResponse.json({ success: true, user: userWithoutPassword });
   } catch (error) {
     console.error('Profile update error:', error);

@@ -1,5 +1,5 @@
-// Simple in-memory user storage (can be replaced with PostgreSQL)
-// For production, use a real database
+// Simple in-memory user storage with PostgreSQL / Supabase synchronization
+import { getPool, initDatabase } from './db';
 
 // Persist the current in-memory users array to the JSON file.
 // Uses require() to avoid circular-import issues with user-db.ts.
@@ -9,6 +9,168 @@ function persistToDisk(): void {
     saveUsersToDB(users);
   } catch (err) {
     console.error('[USER-DB] Failed to persist users to disk:', err);
+  }
+}
+
+// Map database row (snake_case) to StoredUser (camelCase)
+function mapRowToUser(row: any): StoredUser {
+  return {
+    id: row.id,
+    employeeId: row.employee_id,
+    username: row.username,
+    email: row.email,
+    passwordHash: row.password_hash,
+    role: row.role,
+    employmentType: row.employment_type,
+    fullName: row.full_name,
+    phone: row.phone,
+    profilePhoto: row.profile_photo,
+    profilePictureUploaded: !!row.profile_photo,
+    designation: row.designation,
+    department: row.department,
+    guideId: row.guide_id,
+    guideName: row.guide_name,
+    status: row.status,
+    mustChangePassword: row.must_change_password,
+    sessionVersion: row.session_version,
+    approvalStage: row.approval_stage,
+    registrationApprovalVersion: row.registration_approval_version,
+    approvalHistory: typeof row.approval_history === 'string' ? JSON.parse(row.approval_history) : (row.approval_history || []),
+    approvalRemarks: row.approval_remarks,
+    approvedAt: row.approved_at,
+    requestedAt: row.requested_at,
+    createdAt: row.created_at,
+    emailVerified: row.email_verified,
+    verificationToken: row.verification_token,
+    resetToken: row.reset_token,
+    resetTokenExpiresAt: row.reset_token_expires_at,
+    isProfileCompleted: row.is_profile_completed,
+  };
+}
+
+// Synchronize all users from Supabase into memory
+export async function syncUsersWithDb(): Promise<StoredUser[]> {
+  const pool = getPool();
+  if (!pool) return users;
+
+  try {
+    await initDatabase();
+    const res = await pool.query('SELECT * FROM users ORDER BY created_at ASC');
+    if (res && res.rows && res.rows.length > 0) {
+      const dbUsers = res.rows.map(mapRowToUser);
+      // Merge with default/memory users to ensure no lost records
+      for (const dUser of dbUsers) {
+        const idx = users.findIndex((u) => u.id === dUser.id || u.username.toLowerCase() === dUser.username.toLowerCase());
+        if (idx !== -1) {
+          users[idx] = dUser;
+        } else {
+          users.push(dUser);
+        }
+      }
+      console.log(`[USER-DB] Successfully synchronized ${users.length} users from Supabase`);
+    }
+  } catch (err) {
+    console.warn('[USER-DB] Failed to sync users from Supabase, using memory store:', err);
+  }
+  return users;
+}
+
+// Save a single user to Supabase PostgreSQL
+export async function saveUserToPostgres(user: StoredUser): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
+
+  try {
+    await initDatabase();
+    await pool.query(`
+      INSERT INTO users (
+        id, employee_id, username, email, password_hash, role, employment_type,
+        full_name, phone, profile_photo, designation, department, guide_id, guide_name,
+        status, must_change_password, session_version, approval_stage,
+        registration_approval_version, approval_history, approval_remarks, approved_at,
+        requested_at, created_at, email_verified, verification_token,
+        reset_token, reset_token_expires_at, is_profile_completed
+      ) VALUES (
+        $1, $2, $3, $4, $5, $6, $7,
+        $8, $9, $10, $11, $12, $13, $14,
+        $15, $16, $17, $18,
+        $19, $20, $21, $22,
+        $23, $24, $25, $26,
+        $27, $28, $29
+      )
+      ON CONFLICT (id) DO UPDATE SET
+        employee_id = EXCLUDED.employee_id,
+        username = EXCLUDED.username,
+        email = EXCLUDED.email,
+        password_hash = EXCLUDED.password_hash,
+        role = EXCLUDED.role,
+        employment_type = EXCLUDED.employment_type,
+        full_name = EXCLUDED.full_name,
+        phone = EXCLUDED.phone,
+        profile_photo = EXCLUDED.profile_photo,
+        designation = EXCLUDED.designation,
+        department = EXCLUDED.department,
+        guide_id = EXCLUDED.guide_id,
+        guide_name = EXCLUDED.guide_name,
+        status = EXCLUDED.status,
+        must_change_password = EXCLUDED.must_change_password,
+        session_version = EXCLUDED.session_version,
+        approval_stage = EXCLUDED.approval_stage,
+        registration_approval_version = EXCLUDED.registration_approval_version,
+        approval_history = EXCLUDED.approval_history,
+        approval_remarks = EXCLUDED.approval_remarks,
+        approved_at = EXCLUDED.approved_at,
+        requested_at = EXCLUDED.requested_at,
+        email_verified = EXCLUDED.email_verified,
+        verification_token = EXCLUDED.verification_token,
+        reset_token = EXCLUDED.reset_token,
+        reset_token_expires_at = EXCLUDED.reset_token_expires_at,
+        is_profile_completed = EXCLUDED.is_profile_completed;
+    `, [
+      user.id,
+      user.employeeId || null,
+      user.username,
+      user.email,
+      user.passwordHash,
+      user.role,
+      user.employmentType || 'full-time',
+      user.fullName,
+      user.phone || null,
+      user.profilePhoto || null,
+      user.designation || 'User',
+      user.department || null,
+      user.guideId || null,
+      user.guideName || null,
+      user.status || 'pending_approval',
+      user.mustChangePassword || false,
+      user.sessionVersion || 0,
+      user.approvalStage || 0,
+      user.registrationApprovalVersion || 3,
+      JSON.stringify(user.approvalHistory || []),
+      user.approvalRemarks || null,
+      user.approvedAt || null,
+      user.requestedAt || user.createdAt || new Date().toISOString(),
+      user.createdAt || new Date().toISOString(),
+      user.emailVerified || false,
+      user.verificationToken || null,
+      user.resetToken || null,
+      user.resetTokenExpiresAt || null,
+      user.isProfileCompleted || false,
+    ]);
+  } catch (err) {
+    console.error('[USER-DB] Failed to persist user to Supabase:', err);
+  }
+}
+
+// Delete user from Supabase PostgreSQL
+export async function deleteUserFromPostgres(userId: string): Promise<void> {
+  const pool = getPool();
+  if (!pool) return;
+  try {
+    await initDatabase();
+    await pool.query('DELETE FROM users WHERE id = $1', [userId]);
+  } catch (err) {
+    console.error('[USER-DB] Failed to delete user from Supabase:', err);
   }
 }
 
@@ -269,6 +431,7 @@ export function findUserByResetToken(token: string): StoredUser | undefined {
 export function addUser(user: StoredUser): StoredUser {
   users.push(user);
   persistToDisk();
+  saveUserToPostgres(user).catch(() => {});
   return user;
 }
 
@@ -300,6 +463,7 @@ export function approveUser(userId: string, username?: string, passwordHash?: st
       ...updates,
     };
     persistToDisk();
+    saveUserToPostgres(users[index]).catch(() => {});
     return users[index];
   }
   return undefined;
@@ -310,6 +474,10 @@ export function denyUser(userId: string): boolean {
   users = users.filter((u) => u.id !== userId);
   if (users.length !== initial) {
     persistToDisk();
+    const pool = getPool();
+    if (pool) {
+      pool.query('DELETE FROM users WHERE id = $1', [userId]).catch(() => {});
+    }
     return true;
   }
   return false;
@@ -320,6 +488,7 @@ export function updateUser(username: string, updates: Partial<StoredUser>): Stor
   if (index !== -1) {
     users[index] = { ...users[index], ...updates };
     persistToDisk();
+    saveUserToPostgres(users[index]).catch(() => {});
     return users[index];
   }
   return undefined;
@@ -330,6 +499,7 @@ export function updateUserById(userId: string, updates: Partial<StoredUser>): St
   if (index !== -1) {
     users[index] = { ...users[index], ...updates };
     persistToDisk();
+    saveUserToPostgres(users[index]).catch(() => {});
     return users[index];
   }
   return undefined;
